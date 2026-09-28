@@ -232,6 +232,14 @@ input:focus,select:focus{outline:none;border-color:var(--purple)}
 .prow .x{all:unset;cursor:pointer;text-align:center;font-size:20px;line-height:34px;color:var(--red)}
 .pp{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:6px;color:var(--ink-2)}
 
+/* reminder status */
+.diag{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.diag li{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:12px;background:var(--soft);font-size:14px}
+.diag li span{color:var(--ink-2);min-width:64px}
+.diag li b{flex:1;font-weight:700}
+.diag li.ok b{color:var(--green)}
+.diag li.bad b{color:var(--orange)}
+
 /* dialogs */
 dialog{border:0;background:var(--card);color:var(--ink);padding:0;width:min(520px,calc(100vw - 20px));max-height:calc(100dvh - 24px);overflow:auto;border-radius:24px;box-shadow:0 20px 60px rgba(20,14,31,.35)}
 dialog::backdrop{background:rgba(20,14,31,.45)}

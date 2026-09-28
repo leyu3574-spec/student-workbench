@@ -2,6 +2,7 @@
 'use strict';
 
 const VERSION = '0.3.__BUILD__';
+const TEST_ID = 2100000000; // outside the range nid() produces
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 const WD = ['一', '二', '三', '四', '五', '六', '日'];
@@ -733,7 +734,7 @@ function renderMe() {
   fillHours($('#mDayStart'), 5, 12, s.dayStart);
   fillHours($('#mDayEnd'), 16, 24, s.dayEnd);
   $('#mTheme').value = getTheme();
-  $('#secNotify').hidden = !plugin('LocalNotifications');
+  $('#secNotify').hidden = !isNative;
   $('#mLead').value = String(s.notifyLead);
   $('#mVer').textContent = VERSION;
   $('#mEnv').textContent = isNative ? '安卓 App' : '网页版';
@@ -1083,12 +1084,32 @@ async function autoBackup() {
   } catch (e) { console.warn('autoBackup', e); }
 }
 
+/* ---------- native plugins: the app ships Capacitor's runtime and plugin bridges in vendor/cap ---------- */
+async function loadNativePlugins() {
+  if (!isNative || (cap.Plugins && cap.Plugins.LocalNotifications)) return;
+  const load = src => new Promise(res => {
+    const el = document.createElement('script');
+    el.src = src; el.onload = () => res(true); el.onerror = () => res(false);
+    document.head.appendChild(el);
+  });
+  if (!(await load('vendor/cap/core.js'))) return;
+  for (const f of ['local-notifications', 'filesystem', 'share']) await load(`vendor/cap/${f}.js`);
+}
+
 /* ---------- reminders (Android app only) ---------- */
 let notifTimer = null;
 function scheduleNotifSync(ask) {
   if (!plugin('LocalNotifications')) return;
   clearTimeout(notifTimer);
   notifTimer = setTimeout(() => syncNotifications(ask), 800);
+}
+let channelReady = false;
+async function ensureChannel(LN) {
+  if (channelReady || typeof LN.createChannel !== 'function') return;
+  try {
+    await LN.createChannel({ id: 'deadline', name: '截止提醒', description: '作业截止前的提醒', importance: 4, visibility: 1, vibration: true });
+    channelReady = true;
+  } catch (e) { console.warn('channel', e); }
 }
 function nid(s) { let h = 0; for (const ch of s) h = (h * 31 + ch.codePointAt(0)) | 0; return (Math.abs(h) % 2000000000) + 1; }
 async function syncNotifications(ask) {
@@ -1101,8 +1122,9 @@ async function syncNotifications(ask) {
       p = await LN.requestPermissions();
       if (p.display !== 'granted') { $('#mNotifyInfo').textContent = '通知权限被拒绝，可以在系统设置里给“学生工作台”打开通知。'; return; }
     }
+    await ensureChannel(LN);
     const pend = await LN.getPending();
-    const ids = arr(pend && pend.notifications).map(n => ({ id: n.id }));
+    const ids = arr(pend && pend.notifications).filter(n => n.id !== TEST_ID).map(n => ({ id: n.id }));
     if (ids.length) await LN.cancel({ notifications: ids });
     const lead = S.settings.notifyLead * 60000, now = new Date(), list = [];
     openTasks().forEach(t => {
@@ -1110,12 +1132,51 @@ async function syncNotifications(ask) {
       if (!d) return;
       const at = d.getTime() - lead;
       if (at <= now.getTime()) return;
-      list.push({ id: nid(t.id), title: '截止提醒：' + t.title, body: `${dueLabel(d, now)} 截止${t.course ? '，' + t.course : ''}`, schedule: { at: new Date(at), allowWhileIdle: true } });
+      list.push({ id: nid(t.id), channelId: 'deadline', title: '截止提醒：' + t.title, body: `${dueLabel(d, now)} 截止${t.course ? '，' + t.course : ''}`, schedule: { at: new Date(at), allowWhileIdle: true } });
     });
     list.sort((a, b) => a.schedule.at - b.schedule.at);
     if (list.length) await LN.schedule({ notifications: list.slice(0, 60) });
     $('#mNotifyInfo').textContent = list.length ? `已安排 ${Math.min(list.length, 60)} 条提醒。` : '目前没有需要提醒的事项。';
-  } catch (e) { console.warn('notifications', e); }
+  } catch (e) { console.warn('notifications', e); $('#mNotifyInfo').textContent = '安排提醒时出错：' + (e && e.message ? e.message : e); }
+}
+// status the user can read and fix without guessing
+async function renderNotifyDiag() {
+  const box = $('#mDiag');
+  if (!isNative) return;
+  const LN = plugin('LocalNotifications');
+  if (!LN) { box.innerHTML = '<li class="bad">通知组件没加载上。把这一句发给 Claude。</li>'; $('#mTestNotify').disabled = true; return; }
+  $('#mTestNotify').disabled = false;
+  let perm = 'prompt', exact = 'na', pending = 0;
+  try { perm = (await LN.checkPermissions()).display; } catch (e) { /* ignore */ }
+  try { if (typeof LN.checkExactNotificationSetting === 'function') exact = (await LN.checkExactNotificationSetting()).exact_alarm; } catch (e) { exact = 'na'; }
+  try { pending = arr((await LN.getPending()).notifications).filter(n => n.id !== TEST_ID).length; } catch (e) { /* ignore */ }
+  const row = (label, ok, text, btn) => `<li class="${ok ? 'ok' : 'bad'}"><span>${label}</span><b>${text}</b>${btn || ''}</li>`;
+  box.innerHTML =
+    row('通知权限', perm === 'granted', perm === 'granted' ? '已允许' : '未允许', perm === 'granted' ? '' : '<button type="button" class="btn chip" data-fix="perm">去允许</button>') +
+    (exact === 'na' ? '' : row('准时提醒', exact === 'granted', exact === 'granted' ? '已允许' : '未允许，可能会晚到', exact === 'granted' ? '' : '<button type="button" class="btn chip" data-fix="exact">去开启</button>')) +
+    row('已安排', true, `${pending} 条`);
+  $$('[data-fix]', box).forEach(b => b.addEventListener('click', async () => {
+    try {
+      if (b.dataset.fix === 'perm') {
+        const r = await LN.requestPermissions();
+        if (r.display !== 'granted') toast('系统没弹窗的话，到 设置 → 应用 → 学生工作台 → 通知 里打开');
+        else scheduleNotifSync(false);
+      } else await LN.changeExactNotificationSetting();
+    } catch (e) { console.warn('fix', e); }
+    setTimeout(renderNotifyDiag, 800);
+  }));
+}
+async function testNotify() {
+  const LN = plugin('LocalNotifications');
+  if (!LN) { toast('通知组件没加载上'); return; }
+  try {
+    let p = await LN.checkPermissions();
+    if (p.display !== 'granted') p = await LN.requestPermissions();
+    if (p.display !== 'granted') { toast('没有通知权限，先点“去允许”'); renderNotifyDiag(); return; }
+    await ensureChannel(LN);
+    await LN.schedule({ notifications: [{ id: TEST_ID, channelId: 'deadline', title: '测试提醒', body: '看到这条，截止提醒就能正常弹出', schedule: { at: new Date(Date.now() + 10000), allowWhileIdle: true } }] });
+    toast('10 秒后看通知，可以先回到桌面');
+  } catch (e) { toast('测试提醒失败：' + (e && e.message ? e.message : e)); }
 }
 
 /* ---------- theme ---------- */
@@ -1134,6 +1195,7 @@ function route() {
   $$('.nav a').forEach(a => { if (a.dataset.tab === tab) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
   if (tab === 'week') viewWeek = null;
   renderAll();
+  if (tab === 'me') renderNotifyDiag();
   window.scrollTo(0, 0);
 }
 
@@ -1235,6 +1297,7 @@ function wire() {
   $('#mDayEnd').addEventListener('change', e => setS('dayEnd', clampInt(e.target.value, 13, 24, 22)));
   $('#mTheme').addEventListener('change', e => setTheme(e.target.value));
   $('#mLead').addEventListener('change', e => setS('notifyLead', clampInt(e.target.value, 30, 1440, 60)));
+  $('#mTestNotify').addEventListener('click', testNotify);
   $('#mExport').addEventListener('click', () => saveFile(`学生工作台备份-${ymd(new Date())}.json`, backupJSON(), 'application/json'));
   $('#mImport').addEventListener('click', () => $('#fileBak').click());
 
@@ -1275,6 +1338,7 @@ function initServiceWorker() {
 
 /* ---------- start ---------- */
 (async () => {
+  await loadNativePlugins();
   await loadState();
   wire();
   route();
