@@ -27,6 +27,14 @@ jobs:
         run: sed -i "s/__BUILD__/${{ github.run_number }}/g" www/app.js www/sw.js
       - name: 安装依赖
         run: npm install --no-audit --no-fund
+      - name: 带上原生插件的桥接脚本（没有它，通知和文件导出都连不上）
+        run: |
+          mkdir -p www/vendor/cap
+          cp node_modules/@capacitor/core/dist/capacitor.js www/vendor/cap/core.js
+          cp node_modules/@capacitor/local-notifications/dist/plugin.js www/vendor/cap/local-notifications.js
+          cp node_modules/@capacitor/filesystem/dist/plugin.js www/vendor/cap/filesystem.js
+          cp node_modules/@capacitor/share/dist/plugin.js www/vendor/cap/share.js
+          ls -la www/vendor/cap
       - name: 生成安卓工程
         run: |
           npx cap add android
