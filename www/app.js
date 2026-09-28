@@ -1,12 +1,12 @@
 (() => {
 'use strict';
 
-const VERSION = '0.3.__BUILD__';
+const VERSION = '0.4.__BUILD__';
 const TEST_ID = 2100000000; // outside the range nid() produces
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 const WD = ['一', '二', '三', '四', '五', '六', '日'];
-const PX_DAY = 0.5, PX_WEEK = 1; // px per minute: today ruler / week grid
+const PX_DAY = 0.8, PX_WEEK = 1; // px per minute: today ruler / week grid
 const LS_THEME = 'swb:theme', LS_STATE = 'swb:state:v1', LS_AUTOBAK = 'swb:autobak';
 const cap = window.Capacitor;
 const isNative = !!(cap && typeof cap.isNativePlatform === 'function' && cap.isNativePlatform());
@@ -64,10 +64,11 @@ const INFO_KEYS = ['kind', 'nature', 'exam', 'credit', 'klass', 'comp', 'hours',
 function defaults() {
   return {
     v: 1,
-    settings: { nick: '', goal: '', pacer: { name: '兔子', role: 'company', msg: '' }, termStart: '', totalWeeks: 18, dayStart: 8, dayEnd: 22, periods: clone(DEFAULT_PERIODS), notifyLead: 60, show: {}, updatedAt: 0 },
+    settings: { nick: '', goal: '', pacer: { name: '兔子', role: 'company', msg: '', daily: true }, termStart: '', totalWeeks: 18, dayStart: 8, dayEnd: 22, periods: clone(DEFAULT_PERIODS), notifyLead: 60, show: {}, plan: { latest: 23, maxBlock: 90 }, updatedAt: 0 },
     courses: [],
     tasks: [],
-    others: []
+    others: [],
+    plans: []
   };
 }
 function normSettings(v) {
@@ -77,7 +78,9 @@ function normSettings(v) {
   o.termStart = parseYMD(o.termStart) ? o.termStart : '';
   delete o.routeStart;
   const pc = o.pacer && typeof o.pacer === 'object' ? o.pacer : {};
-  o.pacer = { name: str(pc.name).trim().slice(0, 8) || '兔子', role: ['goal', 'model', 'company'].includes(pc.role) ? pc.role : 'company', msg: str(pc.msg).trim().slice(0, 30) };
+  o.pacer = { name: str(pc.name).trim().slice(0, 8) || '兔子', role: ['goal', 'model', 'company'].includes(pc.role) ? pc.role : 'company', msg: str(pc.msg).trim().slice(0, 30), daily: pc.daily !== false };
+  const pl = o.plan && typeof o.plan === 'object' ? o.plan : {};
+  o.plan = { latest: clampInt(pl.latest, 20, 24, 23), maxBlock: [45, 60, 90, 120].includes(+pl.maxBlock) ? +pl.maxBlock : 90 };
   o.totalWeeks = clampInt(o.totalWeeks, 8, 30, 18);
   const show = o.show && typeof o.show === 'object' ? o.show : {};
   o.show = {}; SHOW_FIELDS.forEach(([k]) => { o.show[k] = !!show[k]; });
@@ -101,6 +104,14 @@ function normCourse(x) {
     updatedAt: Number(x.updatedAt) || 0, deletedAt: Number(x.deletedAt) || 0
   };
 }
+// planned study blocks (from the local planner or the AI), one per time slot
+function normPlan(x) {
+  return {
+    id: String(x.id || newId()), date: parseYMD(x.date) ? x.date : '', start: HM.test(x.start) ? x.start : '', end: HM.test(x.end) ? x.end : '',
+    taskId: str(x.taskId), title: str(x.title).trim(), reason: str(x.reason), source: x.source === 'ai' ? 'ai' : 'local',
+    status: ['planned', 'done'].includes(x.status) ? x.status : 'planned', updatedAt: Number(x.updatedAt) || 0, deletedAt: Number(x.deletedAt) || 0
+  };
+}
 // arrangements without fixed periods: internships, online courses
 function normOther(x) {
   return {
@@ -114,7 +125,7 @@ function normTask(x) {
     id: String(x.id || newId()), title: str(x.title).trim(), course: str(x.course),
     type: ['作业', '考试', '其他'].includes(x.type) ? x.type : '作业',
     priority: ['high', 'mid', 'low'].includes(x.priority) ? x.priority : 'mid',
-    status, due: parseDue(x.due) ? str(x.due).slice(0, 16) : '',
+    status, due: parseDue(x.due) ? str(x.due).slice(0, 16) : '', estimate: [30, 45, 60, 90, 120, 180, 240].includes(+x.estimate) ? +x.estimate : 60,
     doneAt: Number(x.doneAt) || 0, createdAt: Number(x.createdAt) || 0,
     updatedAt: Number(x.updatedAt) || 0, deletedAt: Number(x.deletedAt) || 0
   };
@@ -126,7 +137,8 @@ function normalizeState(o) {
     settings: normSettings(o.settings),
     courses: arr(o.courses).filter(x => x && typeof x === 'object').map(normCourse).filter(c => c.name || c.deletedAt),
     tasks: arr(o.tasks).filter(x => x && typeof x === 'object').map(normTask).filter(t => t.title || t.deletedAt),
-    others: arr(o.others).filter(x => x && typeof x === 'object').map(normOther).filter(t => t.name || t.deletedAt)
+    others: arr(o.others).filter(x => x && typeof x === 'object').map(normOther).filter(t => t.name || t.deletedAt),
+    plans: arr(o.plans).filter(x => x && typeof x === 'object').map(normPlan).filter(b => (b.date && b.start && b.end) || b.deletedAt)
   };
 }
 const alive = list => list.filter(x => !x.deletedAt);
@@ -136,6 +148,8 @@ function purgeTombstones() {
   S.courses = S.courses.filter(x => !x.deletedAt || x.deletedAt > cut);
   S.tasks = S.tasks.filter(x => !x.deletedAt || x.deletedAt > cut);
   S.others = S.others.filter(x => !x.deletedAt || x.deletedAt > cut);
+  const old = ymd(addDays(new Date(), -60));
+  S.plans = S.plans.filter(x => (!x.deletedAt || x.deletedAt > cut) && (!x.date || x.date >= old));
 }
 
 const KV = (() => {
@@ -181,6 +195,7 @@ async function flushSave() {
 }
 function persist() { clearTimeout(saveTimer); saveTimer = setTimeout(flushSave, 250); }
 function commit(what) {
+  if (what === 'tasks') reconcilePlans();
   persist();
   renderAll();
   if (what === 'tasks' || what === 'settings') scheduleNotifSync(what === 'tasks');
@@ -342,7 +357,7 @@ function routeState(now) {
 const passedIndex = km => ROUTE.points.reduce((n, [, at], i) => (km >= at ? i : n), 0);
 const PACER_ROLES = { goal: ['目标', '我在南大等你'], model: ['榜样', '跟上我的节奏'], company: ['陪伴', '一起跑，别掉队'] };
 const pacer = () => S.settings.pacer;
-const pacerMsg = () => pacer().msg || PACER_ROLES[pacer().role][1];
+const pacerMsg = () => dailyLine() || pacer().msg || PACER_ROLES[pacer().role][1];
 const initial = v => (Array.from(String(v || '').trim())[0] || '');
 function raceTalk(r) {
   const ta = pacer().name, say = `${ta}：“${pacerMsg()}”`, left = r.total - r.me;
@@ -391,6 +406,309 @@ function cheer(idx) {
   else toast(`过${name}了！${pacer().name}：“${pacerMsg()}”`);
 }
 
+/* ---------- planner: the local engine does the arithmetic, the AI only proposes ---------- */
+const MEALS = [['12:00', '13:30'], ['17:30', '18:30']]; // 午饭午休, 晚饭
+const BREAK = 10, MIN_BLOCK = 25;
+const ceil5 = d => Math.ceil((d.getHours() * 60 + d.getMinutes()) / 5) * 5;
+const plansOn = date => alive(S.plans).filter(b => b.date === date);
+const blockMin = b => toMin(b.end) - toMin(b.start);
+function doneMinutes(taskId) { return alive(S.plans).filter(b => b.taskId === taskId && b.status === 'done').reduce((m, b) => m + blockMin(b), 0); }
+function remainingMin(t) { return Math.max(0, t.estimate - doneMinutes(t.id)); }
+// hours of work left per hour until the deadline; overdue work goes first
+function riskScore(t, now) {
+  const d = parseDue(t.due), w = { high: 1.5, mid: 1, low: 0.7 }[t.priority];
+  if (!d) return 0.02 * w;
+  const hours = (d - now) / 3600000;
+  if (hours <= 0) return 1000 - hours;
+  return (remainingMin(t) / 60) / Math.max(1, hours) * w;
+}
+const byRisk = now => (a, b) => riskScore(b, now) - riskScore(a, now);
+function reasonFor(t, now) {
+  const d = parseDue(t.due);
+  if (!d) return t.priority === 'high' ? '高优先' : '';
+  if (d <= now) return '已经过期，先补上';
+  return dueLabel(d, now) + ' 截止';
+}
+// latest minute a block for this task may end today (its deadline if it falls later today)
+function dueCapEnd(t, date, now) {
+  const d = parseDue(t.due);
+  if (!d || ymd(d) !== date || d <= now) return null;
+  return d.getHours() * 60 + d.getMinutes();
+}
+function freeSlots(date, fromMin, keepBlocks) {
+  const day = startOfDay(date);
+  const busy = classesOn(day).map(c => [toMin(c.start), toMin(c.end)])
+    .concat(MEALS.map(([a, b]) => [toMin(a), toMin(b)]))
+    .concat((keepBlocks || []).map(b => [toMin(b.start), toMin(b.end)]))
+    .sort((x, y) => x[0] - y[0]);
+  const end = S.settings.plan.latest * 60;
+  let cur = Math.max(fromMin, S.settings.dayStart * 60);
+  const out = [];
+  busy.forEach(([a, b]) => { if (b <= cur) return; if (a > cur) out.push([cur, Math.min(a, end)]); cur = Math.max(cur, b); });
+  if (end > cur) out.push([cur, end]);
+  return out.filter(([a, b]) => b - a >= MIN_BLOCK);
+}
+function keptBlocks(date, fromMin) { return plansOn(date).filter(b => b.status === 'done' || toMin(b.start) < fromMin); }
+function localPlan(now) {
+  const date = ymd(now), fromMin = ceil5(now), maxB = S.settings.plan.maxBlock;
+  const need = new Map(openTasks().map(t => [t.id, remainingMin(t)]));
+  const blocks = [];
+  freeSlots(now, fromMin, keptBlocks(date, fromMin)).forEach(([a, b]) => {
+    let cur = a;
+    for (;;) {
+      const fit = t => { const cap = dueCapEnd(t, date, now); return Math.min(maxB, need.get(t.id) || 0, b - cur, cap == null ? Infinity : cap - cur); };
+      const cand = openTasks().filter(t => fit(t) >= MIN_BLOCK).sort(byRisk(now))[0];
+      if (!cand) break;
+      const len = fit(cand), n = blocks.filter(x => x.taskId === cand.id).length;
+      blocks.push({ start: fmtMin(cur), end: fmtMin(cur + len), taskId: cand.id, title: cand.title + (n ? `（第 ${n + 1} 段）` : ''), reason: reasonFor(cand, now) });
+      need.set(cand.id, need.get(cand.id) - len);
+      cur += len + BREAK;
+    }
+  });
+  return { blocks, dropped: [], note: '' };
+}
+// every block the AI proposes is checked here before you ever see it
+function validateBlocks(raw, now) {
+  const date = ymd(now), fromMin = ceil5(now);
+  const slots = freeSlots(now, fromMin, keptBlocks(date, fromMin));
+  const open = new Map(openTasks().map(t => [t.id, t])), used = new Map(), ok = [], dropped = [];
+  arr(raw).forEach(x => {
+    if (!x || typeof x !== 'object') return;
+    const a = toMin(String(x.start || '')), b = toMin(String(x.end || '')), t = open.get(String(x.task_id || x.taskId || ''));
+    const title = str(x.title).trim() || (t ? t.title : '未命名');
+    const cap = t ? dueCapEnd(t, date, now) : null;
+    const why = a == null || b == null || b <= a ? '时间写得不对'
+      : !t ? '对应的作业不存在或已经完成'
+      : b - a < 20 || b - a > S.settings.plan.maxBlock + 5 ? '时长不合适'
+      : !slots.some(([sa, sb]) => a >= sa && b <= sb) ? '和上课、饭点或已有安排冲突'
+      : ok.some(o => a < toMin(o.end) && b > toMin(o.start)) ? '和另一块重叠'
+      : cap != null && b > cap ? '排在截止时间之后'
+      : (used.get(t.id) || 0) + (b - a) > remainingMin(t) + 15 ? '超过这项作业需要的时间'
+      : '';
+    if (why) { dropped.push({ title, start: String(x.start || ''), end: String(x.end || ''), why }); return; }
+    used.set(t.id, (used.get(t.id) || 0) + (b - a));
+    ok.push({ start: fmtMin(a), end: fmtMin(b), taskId: t.id, title: title.slice(0, 40), reason: str(x.reason).slice(0, 30) });
+  });
+  ok.sort((x, y) => toMin(x.start) - toMin(y.start));
+  return { ok, dropped };
+}
+function planContext(now) {
+  const date = ymd(now), fromMin = ceil5(now), nowMin = now.getHours() * 60 + now.getMinutes();
+  return {
+    now: `${date} 周${WD[isoDay(now) - 1]} ${fmtMin(nowMin)}`,
+    week: teachWeek(now),
+    free_slots: freeSlots(now, fromMin, keptBlocks(date, fromMin)).map(([a, b]) => ({ start: fmtMin(a), end: fmtMin(b), minutes: b - a })),
+    classes_left: classesOn(now).filter(c => toMin(c.end) > nowMin).map(c => ({ start: c.start, end: c.end, name: c.name })),
+    tasks: openTasks().filter(t => remainingMin(t) > 0).sort(byRisk(now)).slice(0, 12).map(t => {
+      const d = parseDue(t.due);
+      return { id: t.id, title: t.title, course: t.course, type: t.type, priority: { high: '高', mid: '中', low: '低' }[t.priority],
+        due: d ? dueLabel(d, now) : '无截止', hours_left: d ? Math.round((d - now) / 360000) / 10 : null, minutes_needed: remainingMin(t) };
+    }),
+    prefs: { max_block: S.settings.plan.maxBlock, break: BREAK, latest: `${S.settings.plan.latest}:00` }
+  };
+}
+const PLAN_PROMPT = [
+  '你是大学生的学习规划助手。根据用户发来的 JSON，为今天剩下的时间排学习块。',
+  '规则：',
+  '1. 每一块必须完整落在 free_slots 的某一个空档里，不能跨空档，也不能超出空档。',
+  '2. 每块 25 到 max_block 分钟；同一空档里相邻两块之间至少留 break 分钟。',
+  '3. 先排已过期、截止最近、优先级高的作业；大作业拆成几块，title 写清楚这一块做哪部分。',
+  '4. 同一项作业今天排的总时长不超过它的 minutes_needed；截止在今天的，要在截止前排完。',
+  '5. 不用把空档排满，给休息留余地；今天做不完的不要硬塞。',
+  '只输出 JSON，不要任何其他文字：{"blocks":[{"start":"HH:MM","end":"HH:MM","task_id":"作业的 id","title":"这一块做什么","reason":"不超过 20 字"}],"note":"一句话提醒，不超过 30 字"}'
+].join('\n');
+
+/* ---------- AI: any OpenAI-compatible service; the key never leaves this device except to that service ---------- */
+const LS_AI = 'swb:ai', LS_LINE = 'swb:pacer-line';
+const PROVIDERS = {
+  deepseek: { name: 'DeepSeek', base: 'https://api.deepseek.com', model: 'deepseek-v4-flash', hint: 'deepseek-v4-flash 快，deepseek-v4-pro 更强。' },
+  bailian: { name: '阿里百炼', base: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus', hint: '模型名以百炼控制台为准（待验证）。' },
+  doubao: { name: '豆包（火山方舟）', base: 'https://ark.cn-beijing.volces.com/api/v3', model: '', hint: '模型名填方舟控制台里的模型 ID（待验证）。' },
+  custom: { name: '其他', base: '', model: '', hint: '填 OpenAI 兼容接口的地址和模型名。' }
+};
+function aiConfig() {
+  let c = {};
+  try { c = JSON.parse(localStorage.getItem(LS_AI) || '{}') || {}; } catch (e) { c = {}; }
+  const p = PROVIDERS[c.provider] ? c.provider : 'deepseek';
+  return { provider: p, key: str(c.key), base: str(c.base) || PROVIDERS[p].base, model: str(c.model) || PROVIDERS[p].model };
+}
+function saveAiConfig(c) { try { localStorage.setItem(LS_AI, JSON.stringify(c)); } catch (e) { /* ignore */ } }
+const aiReady = () => { const c = aiConfig(); return !!(c.key && c.base && c.model); };
+class AiError extends Error { constructor(code, msg) { super(msg); this.code = code; } }
+async function postJSON(url, headers, body, timeoutMs) {
+  const H = plugin('CapacitorHttp'); // native request: no browser cross-origin rules inside the app
+  if (H) {
+    const r = await H.request({ url, method: 'POST', headers, data: body, connectTimeout: 15000, readTimeout: timeoutMs, responseType: 'json' });
+    let data = r.data;
+    if (typeof data === 'string') { try { data = JSON.parse(data); } catch (e) { /* keep text */ } }
+    return { status: r.status, data };
+  }
+  const ctl = new AbortController(), tm = setTimeout(() => ctl.abort(), timeoutMs);
+  try {
+    const r = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal: ctl.signal });
+    return { status: r.status, data: await r.json().catch(() => null) };
+  } finally { clearTimeout(tm); }
+}
+async function callAI(messages, opts) {
+  const { json = false, maxTokens = 900 } = opts || {};
+  const c = aiConfig();
+  if (!c.key) throw new AiError('nokey', '还没填 API Key');
+  if (!c.model) throw new AiError('nomodel', '还没填模型名');
+  const url = c.base.replace(/\/+$/, '') + '/chat/completions';
+  const headers = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + c.key };
+  const core = { model: c.model, messages, max_tokens: maxTokens, temperature: 0.3 };
+  // optional extras; if the service rejects them we retry without
+  const extra = Object.assign({}, json ? { response_format: { type: 'json_object' } } : {}, c.provider === 'deepseek' ? { thinking: { type: 'disabled' } } : {});
+  const netErr = () => new AiError('network', isNative ? '连不上模型服务，检查一下网络' : '网页版直连模型失败，可能被浏览器的跨域限制拦了（待验证），先在手机 App 里用');
+  let res;
+  try { res = await postJSON(url, headers, Object.assign({}, core, extra), 60000); } catch (e) { throw netErr(); }
+  if ((res.status === 400 || res.status === 422) && Object.keys(extra).length) {
+    try { res = await postJSON(url, headers, core, 60000); } catch (e) { throw netErr(); }
+  }
+  const msg = res.data && res.data.error && (res.data.error.message || res.data.error.code);
+  if (res.status === 401 || res.status === 403) throw new AiError('auth', 'API Key 不对，或者没有权限');
+  if (res.status === 402) throw new AiError('balance', '账户余额不足');
+  if (res.status === 429) throw new AiError('rate', '请求太频繁，过一会儿再试');
+  if (res.status >= 400 || !res.data || typeof res.data !== 'object') throw new AiError('http', `模型服务报错（${res.status}）${msg ? '：' + String(msg).slice(0, 80) : ''}`);
+  const ch = res.data.choices && res.data.choices[0];
+  const text = ch && ch.message && ch.message.content;
+  if (!text) throw new AiError('empty', '模型没有返回内容');
+  return String(text);
+}
+function parseJSONLoose(text) {
+  const t = String(text).replace(/```(?:json)?/gi, '').trim();
+  try { return JSON.parse(t); } catch (e) {
+    const i = t.indexOf('{'), j = t.lastIndexOf('}');
+    if (i >= 0 && j > i) { try { return JSON.parse(t.slice(i, j + 1)); } catch (e2) { /* give up */ } }
+  }
+  return null;
+}
+
+/* ---------- 排今天 ---------- */
+let planDraft = null;
+async function planToday() {
+  const btn = $('#btnPlan');
+  if (btn.disabled) return;
+  const now = new Date();
+  btn.disabled = true; btn.textContent = aiReady() ? 'AI 正在排…' : '正在排…';
+  let result = null, source = 'local', error = '';
+  try {
+    const ctx = planContext(now);
+    if (aiReady() && ctx.free_slots.length && ctx.tasks.length) {
+      const o = parseJSONLoose(await callAI([{ role: 'system', content: PLAN_PROMPT }, { role: 'user', content: JSON.stringify(ctx) }], { json: true, maxTokens: 1200 }));
+      if (!o || !Array.isArray(o.blocks)) throw new AiError('format', 'AI 返回的格式不对');
+      const v = validateBlocks(o.blocks, now);
+      result = { blocks: v.ok, dropped: v.dropped, note: str(o.note).slice(0, 60) };
+      source = 'ai';
+    }
+  } catch (e) { error = e && e.message ? e.message : String(e); }
+  if (!result) result = localPlan(now);
+  btn.disabled = false; btn.textContent = '排今天';
+  planDraft = { date: ymd(now), fromMin: ceil5(now), source, blocks: result.blocks };
+  showPlanPreview(result, source, error);
+}
+function showPlanPreview(res, source, error) {
+  $('#dpSrc').textContent = source === 'ai' ? 'AI 排的，已按你的课表和截止时间检查过' : '本地规则排的';
+  $('#dpErr').hidden = !error;
+  $('#dpErr').textContent = error ? `这次没用上 AI（${error}），先用本地规则排了一版。` : '';
+  $('#dpList').innerHTML = res.blocks.length
+    ? res.blocks.map(b => `<li><span class="num">${b.start}–${b.end}</span><div><b>${esc(b.title)}</b>${b.reason ? `<small>${esc(b.reason)}</small>` : ''}</div></li>`).join('')
+    : '<li class="empty">今天没有需要排的作业，或者剩下的空档不够一块。</li>';
+  const dr = res.dropped || [];
+  $('#dpDrop').hidden = !dr.length;
+  $('#dpDrop').innerHTML = dr.length ? `<summary>去掉了 ${dr.length} 块不合规的</summary>` + dr.map(d => `<p>${esc(d.start)}–${esc(d.end)} ${esc(d.title)}：${esc(d.why)}</p>`).join('') : '';
+  $('#dpNote').hidden = !res.note;
+  $('#dpNote').textContent = res.note || '';
+  $('#dpAccept').disabled = !res.blocks.length;
+  openDlg($('#dlgPlan'));
+}
+function acceptPlan() {
+  if (!planDraft) return;
+  const t = Date.now(), { date, fromMin, source, blocks } = planDraft;
+  S.plans.forEach(b => { if (!b.deletedAt && b.date === date && b.status === 'planned' && toMin(b.start) >= fromMin) { b.deletedAt = t; b.updatedAt = t; } });
+  blocks.forEach(b => S.plans.push(normPlan(Object.assign({ id: newId(), date, source, status: 'planned', updatedAt: t }, b))));
+  planDraft = null;
+  commit('plans');
+  $('#dlgPlan').close();
+  toast(`已排进今天：${blocks.length} 块`);
+}
+// when work changes, blocks follow: finished or deleted work frees its future time
+function reconcilePlans() {
+  const now = new Date(), t = now.getTime(), today = ymd(now), nowMin = now.getHours() * 60 + now.getMinutes();
+  S.plans.forEach(b => {
+    if (b.deletedAt || b.status !== 'planned' || b.date < today) return;
+    const task = S.tasks.find(x => x.id === b.taskId);
+    const future = b.date > today || toMin(b.start) >= nowMin;
+    if (!task || task.deletedAt) { b.deletedAt = t; b.updatedAt = t; }
+    else if (task.status === 'done') { if (future) b.deletedAt = t; else b.status = 'done'; b.updatedAt = t; }
+  });
+}
+let blockId = null;
+function openBlock(id) {
+  const b = S.plans.find(x => x.id === id && !x.deletedAt);
+  if (!b) return;
+  blockId = b.id;
+  $('#dbH').textContent = b.title;
+  $('#dbWhen').textContent = `${b.start}–${b.end}　${b.source === 'ai' ? 'AI 排的' : '本地排的'}${b.status === 'done' ? '　已完成' : ''}`;
+  $('#dbReason').textContent = b.reason || '';
+  $('#dbDone').hidden = b.status === 'done';
+  resetDel($('#dbDel'), true); $('#dbDel').textContent = '删掉这块';
+  openDlg($('#dlgBlock'));
+}
+function renderPlanHints(now) {
+  const today = ymd(now), fromMin = ceil5(now), nowMin = now.getHours() * 60 + now.getMinutes();
+  const mine = plansOn(today);
+  // work due by tomorrow that today's plan doesn't cover yet
+  const covered = new Set(mine.filter(b => b.status === 'planned' && toMin(b.end) > nowMin).map(b => b.taskId));
+  const limit = addDays(startOfDay(now), 2).getTime();
+  const urgent = mine.length ? openTasks().filter(t => { const d = parseDue(t.due); return d && d.getTime() < limit && remainingMin(t) > 0 && !covered.has(t.id); }) : [];
+  $('#replanHint').hidden = !urgent.length;
+  $('#replanText').textContent = urgent.length ? `${urgent.length} 项快到期的作业还没排进今天` : '';
+  // free right now: suggest the riskiest piece of work
+  const inBlock = mine.some(b => b.status === 'planned' && toMin(b.start) <= nowMin && toMin(b.end) > nowMin);
+  const slot = freeSlots(now, fromMin, keptBlocks(today, fromMin).concat(mine.filter(b => b.status === 'planned'))).find(([a]) => a <= fromMin + 5);
+  const top = openTasks().filter(t => remainingMin(t) > 0).sort(byRisk(now))[0];
+  const show = !urgent.length && !inBlock && slot && top;
+  $('#nowHint').hidden = !show;
+  if (show) {
+    const d = parseDue(top.due);
+    $('#nowHintText').textContent = `现在空着 ${durText(slot[1] - slot[0])}，建议先做「${top.title}」${d ? '（' + (d <= now ? '已过期' : dueLabel(d, now) + ' 截止') + '）' : ''}`;
+    $('#nowHintBtn').onclick = () => {
+      const cap = dueCapEnd(top, today, now), len = Math.min(slot[1] - slot[0], S.settings.plan.maxBlock, remainingMin(top), cap == null ? Infinity : cap - slot[0]);
+      if (len < MIN_BLOCK) { toast('这段时间不够排一块'); return; }
+      S.plans.push(normPlan({ id: newId(), date: today, start: fmtMin(slot[0]), end: fmtMin(slot[0] + len), taskId: top.id, title: top.title, reason: reasonFor(top, now), source: 'local', status: 'planned', updatedAt: Date.now() }));
+      commit('plans');
+      toast(`已排进去：${fmtMin(slot[0])}–${fmtMin(slot[0] + len)}`);
+    };
+  }
+  const n = mine.filter(b => b.status === 'planned').length, d = mine.filter(b => b.status === 'done').length;
+  $('#planInfo').textContent = n || d ? `今天计划 ${n + d} 块${d ? `，完成 ${d} 块` : ''}` : aiReady() ? 'AI 已连接' : '没连 AI 时用本地规则排';
+}
+
+/* ---------- the pacer's line of the day ---------- */
+function dailyLine() {
+  try {
+    const c = JSON.parse(localStorage.getItem(LS_LINE) || 'null'), p = pacer();
+    if (p.daily && c && c.date === ymd(new Date()) && c.name === p.name && c.role === p.role) return c.text;
+  } catch (e) { /* ignore */ }
+  return '';
+}
+let lineBusy = false;
+async function refreshPacerLine() {
+  const p = pacer();
+  if (lineBusy || !p.daily || !aiReady() || !routeOn() || dailyLine()) return;
+  lineBusy = true;
+  const now = new Date(), r = routeState(now), w = teachWeek(now);
+  const prompt = `你扮演「${p.name}」，是用户的${PACER_ROLES[p.role][0]}，正陪用户（称呼：${S.settings.nick || '同学'}）从南京工业大学一路跑向南京大学，比喻朝理想的大学努力。` +
+    `今天是${ymd(now)}，本学期第 ${w || '?'} 周。赛况：${r.gap >= 0.15 ? `用户落后你 ${r.gap.toFixed(1)} km，有 ${r.overdue} 项作业过期没交` : '你们并肩跑着'}。` +
+    '用你的口吻对用户说一句话，20 个字以内，具体、有劲，可以用跑步的比喻。不要引号，不要引用名人名言，不要表情符号。';
+  try {
+    const line = (await callAI([{ role: 'user', content: prompt }], { maxTokens: 80 })).replace(/["“”「」]/g, '').replace(/\s+/g, '').slice(0, 30);
+    if (line) { localStorage.setItem(LS_LINE, JSON.stringify({ date: ymd(now), name: p.name, role: p.role, text: line })); renderRoute(); }
+  } catch (e) { console.warn('pacer line', e); }
+  lineBusy = false;
+}
+
 /* ---------- render: today ---------- */
 function greeting(d) {
   const h = d.getHours();
@@ -436,9 +754,10 @@ function renderToday() {
     if (hour) { const lb = mk(r, 'div', 'tl num'); lb.style.top = y + 'px'; lb.textContent = pad(m / 60); }
   }
   // free blocks from now on, so you can see where homework fits
+  const blocksToday = plansOn(todayKey);
   let cursor = Math.max(nowMin, start);
   const gaps = [];
-  classes.forEach(c => {
+  classes.concat(blocksToday).slice().sort((x, y) => toMin(x.start) - toMin(y.start)).forEach(c => {
     const a = toMin(c.start), b = toMin(c.end);
     if (b <= cursor) return;
     if (a > cursor) gaps.push([cursor, a]);
@@ -452,7 +771,22 @@ function renderToday() {
     g.textContent = '空档 ' + durText(b - a);
   });
   const box = mk(r, 'div', 'evbox'); // overlapping classes share the lane side by side
-  layoutLanes(classes).forEach(({ c, a, b, lane, lanes }) => {
+  layoutLanes(classes.concat(blocksToday)).forEach(({ c, a, b, lane, lanes }) => {
+    if (c.taskId !== undefined) { // a planned study block
+      const el = mk(box, 'button', 'ev pl' + (c.status === 'done' ? ' done' : ''));
+      el.type = 'button';
+      el.style.top = ((a - start) * PX_DAY) + 'px';
+      el.style.height = Math.max(24, (b - a) * PX_DAY) + 'px';
+      el.style.left = (lane * 100 / lanes).toFixed(3) + '%';
+      el.style.width = `calc(${(100 / lanes).toFixed(3)}% - ${lanes > 1 ? 2 : 0}px)`;
+      const short = (b - a) * PX_DAY < 40; // one line for short blocks so nothing gets clipped
+      el.classList.toggle('short', short);
+      el.innerHTML = short
+        ? `<span class="t">${c.status === 'done' ? '✓ ' : ''}<span class="num">${esc(c.start)}</span> ${esc(c.title)}</span>`
+        : `<span class="t">${c.status === 'done' ? '✓ ' : ''}${esc(c.title)}</span><span class="m"><span class="num">${esc(c.start)}–${esc(c.end)}</span>${c.source === 'ai' ? '　AI' : ''}</span>`;
+      el.addEventListener('click', () => openBlock(c.id));
+      return;
+    }
     const el = mk(box, 'button', 'ev');
     el.type = 'button';
     el.style.top = ((a - start) * PX_DAY) + 'px';
@@ -495,6 +829,7 @@ function renderToday() {
   else sum = `下一节 ${next.start} ${next.name}${next.place ? '，' + next.place : ''}`;
   if (dues.length) sum += `；今天有 ${dues.length} 项截止`;
   $('#todaySum').textContent = sum;
+  renderPlanHints(now);
 
   const soon = openTasks().filter(t => t.due).sort(byDue).slice(0, 4);
   const list = $('#soonList');
@@ -602,7 +937,7 @@ function renderWeek() {
 }
 
 /* ---------- render: tasks ---------- */
-let taskFilter = 'open';
+let taskFilter = 'open', taskSort = 'due';
 function taskRow(t, now) {
   const due = parseDue(t.due), done = t.status === 'done';
   const li = document.createElement('li');
@@ -627,9 +962,11 @@ function taskRow(t, now) {
 }
 function renderTasks() {
   const now = new Date();
-  const open = openTasks().sort(byDue);
+  const open = openTasks().sort(taskSort === 'risk' ? byRisk(now) : byDue);
   const done = alive(S.tasks).filter(t => t.status === 'done').sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0));
   $$('#taskFilter button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.f === taskFilter)));
+  $$('#taskSort button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.s === taskSort)));
+  $('#taskSort').hidden = taskFilter !== 'open';
   $('#taskFilter [data-f="open"] .n').textContent = open.length || '';
   $('#taskFilter [data-f="done"] .n').textContent = done.length || '';
   const list = $('#taskList');
@@ -640,7 +977,10 @@ function renderTasks() {
       ? '<li class="empty">擂台上没有对手了。有新作业就点“添加”，快到期的会标橙，24 小时内的会拉警戒条。</li>'
       : '<li class="empty">还没有 KO 过任何一项。</li>';
   }
-  items.forEach(t => list.appendChild(taskRow(t, now)));
+  items.forEach((t, i) => {
+    const li = list.appendChild(taskRow(t, now));
+    if (taskFilter === 'open' && taskSort === 'risk' && i === 0) mk($('.tm', li), 'span', 'tag hi').textContent = '先做这个';
+  });
   let over = 0, soon = 0;
   open.forEach(t => { const d = parseDue(t.due); if (!d) return; if (d < now) over++; else if (d - now < 86400000) soon++; });
   let sum = '';
@@ -697,6 +1037,15 @@ function renderMe() {
   $('#mPacerMsg').placeholder = PACER_ROLES[s.pacer.role][1];
   setSeg('#mPacerRole', s.pacer.role);
   $('#secPacer').hidden = !routeOn();
+  $('#mPacerDaily').checked = s.pacer.daily;
+  const ai = aiConfig();
+  $('#mAiProvider').value = ai.provider;
+  if (act !== $('#mAiKey')) $('#mAiKey').value = ai.key;
+  if (act !== $('#mAiModel')) $('#mAiModel').value = ai.model;
+  if (act !== $('#mAiBase')) $('#mAiBase').value = ai.base;
+  $('#mAiHint').textContent = PROVIDERS[ai.provider].hint;
+  fillHours($('#mLatest'), 20, 24, s.plan.latest);
+  $('#mMaxBlock').value = String(s.plan.maxBlock);
   if (act !== $('#mTerm')) $('#mTerm').value = s.termStart;
   const tot = $('#mTotal');
   if (!tot.options.length) for (let i = 8; i <= 30; i++) { const o = document.createElement('option'); o.value = String(i); o.textContent = i + ' 周'; tot.appendChild(o); }
@@ -753,6 +1102,7 @@ function openTask(id) {
   setSeg('#tType', t ? t.type : '作业');
   setSeg('#tPrio', t ? t.priority : 'mid');
   setSeg('#tStatus', t ? t.status : 'todo');
+  $('#tEst').value = String(t ? t.estimate : 60);
   const due = t && parseDue(t.due);
   $('#tDate').value = due ? ymd(due) : ymd(addDays(new Date(), 1));
   $('#tTime').value = due ? fmtHM(due) : '23:59';
@@ -769,7 +1119,7 @@ function saveTask() {
   if (!parseYMD(date)) return showErr('#tErr', '选一个截止日期。');
   if (!HM.test(time)) return showErr('#tErr', '时间用 24 小时制，比如 23:59。');
   const status = segVal('#tStatus') || 'todo';
-  const data = { title, course: $('#tCourse').value.trim(), type: segVal('#tType') || '作业', priority: segVal('#tPrio') || 'mid', status, due: date + 'T' + time };
+  const data = { title, course: $('#tCourse').value.trim(), type: segVal('#tType') || '作业', priority: segVal('#tPrio') || 'mid', status, due: date + 'T' + time, estimate: clampInt($('#tEst').value, 30, 240, 60) };
   let t = editTaskId ? S.tasks.find(x => x.id === editTaskId) : null;
   if (t) {
     if (status === 'done' && t.status !== 'done') t.doneAt = Date.now();
@@ -1048,7 +1398,7 @@ function backupJSON() {
 }
 function mergeState(incoming) {
   const inc = normalizeState(incoming), res = { add: 0, upd: 0, settings: false };
-  ['courses', 'tasks', 'others'].forEach(k => {
+  ['courses', 'tasks', 'others', 'plans'].forEach(k => {
     const map = new Map(S[k].map(x => [x.id, x]));
     inc[k].forEach(r => {
       const cur = map.get(r.id);
@@ -1298,6 +1648,40 @@ function wire() {
   $('#mTheme').addEventListener('change', e => setTheme(e.target.value));
   $('#mLead').addEventListener('change', e => setS('notifyLead', clampInt(e.target.value, 30, 1440, 60)));
   $('#mTestNotify').addEventListener('click', testNotify);
+  // AI model
+  const setAi = patch => { saveAiConfig(Object.assign(aiConfig(), patch)); $('#mAiStatus').textContent = ''; renderMe(); renderPlanHints(new Date()); };
+  $('#mAiProvider').addEventListener('change', e => { const p = e.target.value; setAi({ provider: p, base: PROVIDERS[p].base, model: PROVIDERS[p].model }); });
+  $('#mAiKey').addEventListener('change', e => setAi({ key: e.target.value.trim() }));
+  $('#mAiModel').addEventListener('change', e => setAi({ model: e.target.value.trim() }));
+  $('#mAiBase').addEventListener('change', e => setAi({ base: e.target.value.trim() }));
+  $('#mAiTest').addEventListener('click', async () => {
+    const st = $('#mAiStatus'), b = $('#mAiTest');
+    b.disabled = true; st.textContent = '正在连接…';
+    try { await callAI([{ role: 'user', content: '只回复两个字：连上' }], { maxTokens: 16 }); st.textContent = '连上了'; refreshPacerLine(); }
+    catch (e) { st.textContent = e.message || String(e); }
+    b.disabled = false;
+  });
+  // planner prefs
+  const setPlan = (k, v) => { S.settings.plan[k] = v; touch(S.settings); commit('settings'); };
+  $('#mLatest').addEventListener('change', e => setPlan('latest', clampInt(e.target.value, 20, 24, 23)));
+  $('#mMaxBlock').addEventListener('change', e => setPlan('maxBlock', clampInt(e.target.value, 45, 120, 90)));
+  $('#mPacerDaily').addEventListener('change', e => { S.settings.pacer.daily = e.target.checked; touch(S.settings); commit('settings'); if (e.target.checked) refreshPacerLine(); });
+  // 排今天
+  $('#btnPlan').addEventListener('click', planToday);
+  $('#dpAccept').addEventListener('click', acceptPlan);
+  $('#dpRetry').addEventListener('click', () => { $('#dlgPlan').close(); setTimeout(planToday, 150); });
+  $('#replanBtn').addEventListener('click', planToday);
+  $('#dbDone').addEventListener('click', () => {
+    const b = S.plans.find(x => x.id === blockId);
+    if (b) { b.status = 'done'; touch(b); commit('plans'); toast('这一块完成了'); }
+    $('#dlgBlock').close();
+  });
+  $('#dbDel').addEventListener('click', e => armDelete(e.currentTarget, () => {
+    const b = S.plans.find(x => x.id === blockId);
+    if (b) { b.deletedAt = Date.now(); touch(b); commit('plans'); }
+    $('#dlgBlock').close();
+  }));
+  $$('#taskSort button').forEach(b => b.addEventListener('click', () => { taskSort = b.dataset.s; renderTasks(); }));
   $('#mExport').addEventListener('click', () => saveFile(`学生工作台备份-${ymd(new Date())}.json`, backupJSON(), 'application/json'));
   $('#mImport').addEventListener('click', () => $('#fileBak').click());
 
@@ -1345,5 +1729,6 @@ function initServiceWorker() {
   initServiceWorker();
   scheduleNotifSync(false);
   autoBackup();
+  refreshPacerLine();
 })();
 })();

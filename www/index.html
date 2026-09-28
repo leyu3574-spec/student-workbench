@@ -55,8 +55,14 @@
       <section class="card">
         <div class="ch">
           <div><h2>今天</h2><p class="sub" id="todaySum"></p></div>
-          <button type="button" class="btn primary" id="btnQuickTask">记作业</button>
+          <button type="button" class="btn" id="btnQuickTask">记作业</button>
         </div>
+        <div class="plan-bar">
+          <button type="button" class="btn primary" id="btnPlan">排今天</button>
+          <span class="sub" id="planInfo"></span>
+        </div>
+        <p class="hint" id="nowHint" hidden><span id="nowHintText"></span><button type="button" class="btn chip" id="nowHintBtn">排进去</button></p>
+        <p class="hint warn" id="replanHint" hidden><span id="replanText"></span><button type="button" class="btn chip" id="replanBtn">重排</button></p>
         <div class="ruler" id="ruler"></div>
       </section>
       <section class="card">
@@ -104,6 +110,10 @@
       <button type="button" data-f="open">未完成 <span class="num n"></span></button>
       <button type="button" data-f="done">已 KO <span class="num n"></span></button>
     </div>
+    <div class="seg narrow" id="taskSort">
+      <button type="button" data-s="due">按截止时间</button>
+      <button type="button" data-s="risk">按建议顺序</button>
+    </div>
     <p class="sub" id="taskSum"></p>
     <ul class="tlist" id="taskList"></ul>
   </section>
@@ -127,7 +137,32 @@
           <label class="f">TA 叫<input id="mPacer" maxlength="8" placeholder="兔子" autocomplete="off"></label>
           <label class="f">TA 对你说<input id="mPacerMsg" maxlength="30" autocomplete="off"></label>
         </div>
+        <label class="inline-check"><input type="checkbox" id="mPacerDaily">每天让 TA 换一句新的（需要连上 AI）</label>
       </div>
+    </section>
+    <section class="card sec">
+      <h3>AI 模型</h3>
+      <p class="help">API Key 只存在这台设备上，不会进备份文件，也不会同步。</p>
+      <label class="f">服务商<select id="mAiProvider">
+        <option value="deepseek">DeepSeek（推荐）</option><option value="bailian">阿里百炼</option><option value="doubao">豆包（火山方舟）</option><option value="custom">其他（OpenAI 兼容）</option>
+      </select></label>
+      <label class="f">API Key<input id="mAiKey" type="password" autocomplete="off" placeholder="sk-…"></label>
+      <div class="row2">
+        <label class="f">模型名<input id="mAiModel" autocomplete="off" autocapitalize="off"></label>
+        <label class="f">接口地址<input id="mAiBase" autocomplete="off" autocapitalize="off" inputmode="url"></label>
+      </div>
+      <p class="help" id="mAiHint"></p>
+      <div class="inline"><button type="button" class="btn" id="mAiTest">测试连接</button><span id="mAiStatus"></span></div>
+    </section>
+    <section class="card sec">
+      <h3>规划偏好</h3>
+      <div class="row2">
+        <label class="f">晚上最晚排到<select id="mLatest"></select></label>
+        <label class="f">一块最长<select id="mMaxBlock">
+          <option value="45">45 分钟</option><option value="60">1 小时</option><option value="90">1.5 小时</option><option value="120">2 小时</option>
+        </select></label>
+      </div>
+      <p class="help">午饭午休 12:00–13:30、晚饭 17:30–18:30 不排学习，每块之间留 10 分钟。</p>
     </section>
     <section class="card sec">
       <h3>教学周</h3>
@@ -192,7 +227,13 @@
   <div class="dlg-h"><h3 id="dtH">添加截止事项</h3></div>
   <div class="dlg-b">
     <label class="f">事项<input id="tTitle" maxlength="80" placeholder="例如：材力作业 第 3 章" autocomplete="off"></label>
-    <label class="f">课程<input id="tCourse" maxlength="40" list="courseNames" placeholder="可不填" autocomplete="off"></label>
+    <div class="row2">
+      <label class="f">课程<input id="tCourse" maxlength="40" list="courseNames" placeholder="可不填" autocomplete="off"></label>
+      <label class="f">预计用时<select id="tEst">
+        <option value="30">30 分钟</option><option value="45">45 分钟</option><option value="60">1 小时</option><option value="90">1.5 小时</option>
+        <option value="120">2 小时</option><option value="180">3 小时</option><option value="240">4 小时</option>
+      </select></label>
+    </div>
     <div class="row2">
       <label class="f">日期<input id="tDate" type="date"></label>
       <label class="f">时间<input id="tTime" type="time" value="23:59"></label>
@@ -289,6 +330,33 @@
     <span class="sp"></span>
     <button type="button" class="btn" id="impAppend">追加</button>
     <button type="button" class="btn primary" id="impReplace">替换现有课表</button>
+  </div>
+</dialog>
+
+<dialog id="dlgPlan" aria-labelledby="dpH">
+  <div class="dlg-h"><h3 id="dpH">今天这样排</h3><p class="sub" id="dpSrc"></p></div>
+  <div class="dlg-b">
+    <p class="err" id="dpErr" hidden></p>
+    <ul class="plist" id="dpList"></ul>
+    <details class="dropbox" id="dpDrop" hidden></details>
+    <p class="note" id="dpNote" hidden></p>
+  </div>
+  <div class="dlg-f">
+    <button type="button" class="btn ghost" id="dpRetry">重新排</button>
+    <span class="sp"></span>
+    <button type="button" class="btn" data-close>先不要</button>
+    <button type="button" class="btn primary" id="dpAccept">就这样排</button>
+  </div>
+</dialog>
+
+<dialog id="dlgBlock" aria-labelledby="dbH">
+  <div class="dlg-h"><h3 id="dbH"></h3><p class="sub" id="dbWhen"></p></div>
+  <div class="dlg-b"><p class="note" id="dbReason"></p></div>
+  <div class="dlg-f">
+    <button type="button" class="btn danger" id="dbDel">删掉这块</button>
+    <span class="sp"></span>
+    <button type="button" class="btn" data-close>关闭</button>
+    <button type="button" class="btn primary" id="dbDone">这块做完了</button>
   </div>
 </dialog>
 
