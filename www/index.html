@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#5B2A91">
+<title>学生工作台</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="app.css">
+<script>try{var t=localStorage.getItem('swb:theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}</script>
+</head>
+<body>
+<nav class="nav" aria-label="主导航">
+  <a href="#today" data-tab="today"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg><span>今天</span></a>
+  <a href="#week" data-tab="week"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M9.2 4.5v15M14.8 4.5v15M3.5 10h17"/></svg><span>课表</span></a>
+  <a href="#tasks" data-tab="tasks"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 7l1.8 1.8L9.5 5.5M4.5 13l1.8 1.8 3.2-3.3M4.5 19l1.8 1.8 3.2-3.3M12.5 7.5h7M12.5 13.5h7M12.5 19.5h7"/></svg><span>待办</span><i class="badge" id="navBadge" hidden></i></a>
+  <a href="#me" data-tab="me"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20.5c1.2-3.8 4-5.6 7.5-5.6s6.3 1.8 7.5 5.6"/></svg><span>我的</span></a>
+</nav>
+
+<main class="main">
+  <!-- 今天 -->
+  <section class="view" id="view-today" aria-labelledby="hello">
+    <header class="hero">
+      <div class="hero-text">
+        <p class="hello" id="hello">你好</p>
+        <p class="hero-date" id="heroDate"></p>
+        <p class="hero-meta"><span id="heroWeek"></span><span class="goal" id="heroGoal" hidden></span></p>
+      </div>
+      <a class="oval" href="#me" id="heroOval" aria-label="学期进度">
+        <svg viewBox="0 0 136 80" aria-hidden="true">
+          <path class="track" d="M40 6H96A34 34 0 0 1 96 74H40A34 34 0 0 1 40 6Z"/>
+          <path class="lane" d="M40 13H96A27 27 0 0 1 96 67H40A27 27 0 0 1 40 13Z"/>
+          <path class="finish" d="M68 1V18"/>
+          <path class="done" id="ovalDone" d="M68 6H96A34 34 0 0 1 96 74H40A34 34 0 0 1 40 6Z"/>
+          <circle class="runner" id="ovalRunner" r="6.5" cx="68" cy="6"/>
+          <text class="big" id="ovalWeek" x="68" y="47" text-anchor="middle">–</text>
+          <text class="small" id="ovalTotal" x="68" y="61" text-anchor="middle"></text>
+        </svg>
+      </a>
+    </header>
+    <a class="card route" id="route" href="#tasks" hidden aria-label="赛况">
+      <div class="rt-head"><span class="rt-title">赛况</span><span class="rt-pace" id="rtPace"></span></div>
+      <div class="rt-track">
+        <div class="lane ta"><i class="lane-done" id="taDone"></i><b class="av ta" id="taAv">兔</b></div>
+        <div class="lane me"><i class="lane-done" id="meDone"></i><b class="av me" id="meAv">我</b></div>
+        <span class="rt-marks" id="rtMarks"></span><span class="rt-fin" aria-hidden="true"></span>
+      </div>
+      <div class="rt-pts" id="rtPts"></div>
+      <p class="rt-talk" id="rtTalk"></p>
+      <div class="rt-foot"><span id="rtLeft"></span></div>
+    </a>
+    <div class="today-grid">
+      <section class="card">
+        <div class="ch">
+          <div><h2>今天</h2><p class="sub" id="todaySum"></p></div>
+          <button type="button" class="btn primary" id="btnQuickTask">记作业</button>
+        </div>
+        <div class="ruler" id="ruler"></div>
+      </section>
+      <section class="card">
+        <div class="ch">
+          <div><h2>临近截止</h2><p class="sub" id="soonSum"></p></div>
+          <a class="btn ghost" href="#tasks">全部</a>
+        </div>
+        <ul class="tlist" id="soonList"></ul>
+      </section>
+    </div>
+  </section>
+
+  <!-- 课表 -->
+  <section class="view" id="view-week" aria-labelledby="hWeek">
+    <div class="vh">
+      <h2 id="hWeek">课表</h2>
+      <div class="vh-actions">
+        <button type="button" class="btn ghost" id="btnImport">导入</button>
+        <button type="button" class="btn primary" id="btnAddCourse">添加</button>
+      </div>
+    </div>
+    <div class="wk-nav" id="wkNav">
+      <button type="button" class="btn round" id="wkPrev" aria-label="上一周">‹</button>
+      <span class="wk-label" id="wkLabel"></span>
+      <button type="button" class="btn round" id="wkNext" aria-label="下一周">›</button>
+      <button type="button" class="btn chip" id="wkBack">回本周</button>
+    </div>
+    <p class="hint-line" id="wkHint" hidden>在“我的”里设置开学日期后，课表按周次和单双周显示。</p>
+    <div class="banner" id="wkBanner" hidden></div>
+    <div class="card flush"><div class="wk" id="weekGrid"></div></div>
+    <p class="empty" id="weekEmpty" hidden>还没有课。点“导入”选择教务系统导出的课表 PDF，或者点“添加”手动录入。</p>
+    <section class="card" id="othersCard" hidden>
+      <div class="ch"><div><h2>不排课的安排</h2><p class="sub">实习、网课这类不占固定节次的课</p></div></div>
+      <ul class="olist" id="othersList"></ul>
+    </section>
+  </section>
+
+  <!-- 待办 -->
+  <section class="view" id="view-tasks" aria-labelledby="hTasks">
+    <div class="vh">
+      <h2 id="hTasks">待办</h2>
+      <button type="button" class="btn primary" id="btnAddTask">添加</button>
+    </div>
+    <div class="seg narrow" id="taskFilter">
+      <button type="button" data-f="open">未完成 <span class="num n"></span></button>
+      <button type="button" data-f="done">已 KO <span class="num n"></span></button>
+    </div>
+    <p class="sub" id="taskSum"></p>
+    <ul class="tlist" id="taskList"></ul>
+  </section>
+
+  <!-- 我的 -->
+  <section class="view" id="view-me" aria-labelledby="hMe">
+    <div class="vh"><h2 id="hMe">我的</h2></div>
+    <section class="card sec">
+      <h3>个性化</h3>
+      <div class="row2">
+        <label class="f">称呼<input id="mNick" maxlength="12" placeholder="首页问候用" autocomplete="off"></label>
+        <label class="f">目标<input id="mGoal" maxlength="16" placeholder="可不填" autocomplete="off"></label>
+      </div>
+      <p class="help">目标填“南京大学”，首页会出现一场从南工跑到南大的比赛。陪跑的 TA 按学期进度跑，期末最后一天到南大；作业按时 KO 就能跟住 TA，过期没交会掉队，补交后追回来。按比例算，作业多少都一样，每学期重新出发。</p>
+      <div class="sub-sec" id="secPacer" hidden>
+        <h3>陪跑的 TA</h3>
+        <div class="f"><span>TA 是你的</span>
+          <div class="seg" id="mPacerRole"><button type="button" data-v="goal">目标</button><button type="button" data-v="model">榜样</button><button type="button" data-v="company">陪伴</button></div>
+        </div>
+        <div class="row2">
+          <label class="f">TA 叫<input id="mPacer" maxlength="8" placeholder="兔子" autocomplete="off"></label>
+          <label class="f">TA 对你说<input id="mPacerMsg" maxlength="30" autocomplete="off"></label>
+        </div>
+      </div>
+    </section>
+    <section class="card sec">
+      <h3>教学周</h3>
+      <p class="sub" id="mWeekInfo"></p>
+      <label class="f">第 1 周里的任意一天<input id="mTerm" type="date"></label>
+      <div class="inline">
+        <span>或直接校正：本周是第</span>
+        <select id="mWeekSel" aria-label="本周是第几周"></select>
+        <span>周</span>
+        <button type="button" class="btn" id="mWeekFix">校正</button>
+      </div>
+      <label class="f">本学期共几周<select id="mTotal" aria-label="本学期共几周"></select></label>
+    </section>
+    <section class="card sec">
+      <h3>课表上显示</h3>
+      <p class="help">课程名和上课地点一直显示。下面勾上的内容才会出现在课表和今天页里。</p>
+      <div class="checks" id="mShow"></div>
+    </section>
+    <section class="card sec">
+      <h3>作息表</h3>
+      <p class="help">节次和时间的对应关系，导入课表时用来换算。默认值是学校 2022 年 10 月起执行的作息表（1–10 节），请按现行作息核对。</p>
+      <div id="mPeriods"></div>
+      <button type="button" class="btn ghost" id="mAddPeriod">添加一节</button>
+    </section>
+    <section class="card sec">
+      <h3>显示</h3>
+      <div class="row2">
+        <label class="f">时间轴从<select id="mDayStart"></select></label>
+        <label class="f">到<select id="mDayEnd"></select></label>
+      </div>
+      <label class="f">外观<select id="mTheme">
+        <option value="auto">跟随系统</option><option value="light">白天</option><option value="dark">夜跑</option>
+      </select></label>
+    </section>
+    <section class="card sec" id="secNotify" hidden>
+      <h3>提醒</h3>
+      <label class="f">截止前多久提醒<select id="mLead">
+        <option value="30">30 分钟</option><option value="60">1 小时</option><option value="180">3 小时</option><option value="1440">1 天</option>
+      </select></label>
+      <p class="help" id="mNotifyInfo"></p>
+    </section>
+    <section class="card sec">
+      <h3>数据</h3>
+      <p class="help">数据只存在这台设备上。换设备或在平板上用时，先导出备份，再到另一台导入；导入按修改时间合并，不会用旧内容覆盖新内容。</p>
+      <div class="btnrow">
+        <button type="button" class="btn" id="mExport">导出备份</button>
+        <button type="button" class="btn" id="mImport">导入备份</button>
+      </div>
+    </section>
+    <p class="about">版本 <span class="num" id="mVer"></span>，<span id="mEnv"></span></p>
+  </section>
+</main>
+
+<input type="file" id="fileCsv" accept=".csv,text/csv,text/plain" hidden>
+<input type="file" id="fileBak" accept=".json,application/json" hidden>
+<input type="file" id="filePdf" accept=".pdf,application/pdf" hidden>
+<datalist id="courseNames"></datalist>
+
+<dialog id="dlgTask" aria-labelledby="dtH">
+  <div class="dlg-h"><h3 id="dtH">添加截止事项</h3></div>
+  <div class="dlg-b">
+    <label class="f">事项<input id="tTitle" maxlength="80" placeholder="例如：材力作业 第 3 章" autocomplete="off"></label>
+    <label class="f">课程<input id="tCourse" maxlength="40" list="courseNames" placeholder="可不填" autocomplete="off"></label>
+    <div class="row2">
+      <label class="f">日期<input id="tDate" type="date"></label>
+      <label class="f">时间<input id="tTime" type="time" value="23:59"></label>
+    </div>
+    <div class="f"><span>类型</span>
+      <div class="seg" id="tType"><button type="button" data-v="作业">作业</button><button type="button" data-v="考试">考试</button><button type="button" data-v="其他">其他</button></div>
+    </div>
+    <div class="f"><span>优先级</span>
+      <div class="seg" id="tPrio"><button type="button" data-v="high">高</button><button type="button" data-v="mid">中</button><button type="button" data-v="low">低</button></div>
+    </div>
+    <div class="f"><span>状态</span>
+      <div class="seg" id="tStatus"><button type="button" data-v="todo">未开始</button><button type="button" data-v="doing">进行中</button><button type="button" data-v="done">已完成</button></div>
+    </div>
+    <p class="err" id="tErr" hidden></p>
+  </div>
+  <div class="dlg-f">
+    <button type="button" class="btn danger" id="tDel" hidden>删除</button>
+    <button type="button" class="btn ghost" id="tIcs" hidden>加到日历</button>
+    <span class="sp"></span>
+    <button type="button" class="btn" data-close>取消</button>
+    <button type="button" class="btn primary" id="tSave">保存</button>
+  </div>
+</dialog>
+
+<dialog id="dlgCourseView" aria-labelledby="cvH">
+  <div class="dlg-h cv-h" id="cvHead"><h3 id="cvH"></h3><p class="sub" id="cvWhen"></p></div>
+  <div class="dlg-b">
+    <p class="cv-place" id="cvPlace"></p>
+    <dl class="cv-list" id="cvShown"></dl>
+    <details class="cv-more" id="cvMoreBox"><summary>更多信息</summary><dl class="cv-list" id="cvMore"></dl></details>
+  </div>
+  <div class="dlg-f"><button type="button" class="btn ghost" id="cvEdit">编辑</button><span class="sp"></span><button type="button" class="btn primary" data-close>好</button></div>
+</dialog>
+
+<dialog id="dlgCourse" aria-labelledby="dcH">
+  <div class="dlg-h"><h3 id="dcH">添加课程</h3></div>
+  <div class="dlg-b">
+    <div class="row2">
+      <label class="f">课程名<input id="cName" maxlength="40" placeholder="例如：大学英语" autocomplete="off"></label>
+      <label class="f">简称<input id="cShort" maxlength="8" placeholder="课表格子里显示" autocomplete="off"></label>
+    </div>
+    <div class="row2">
+      <label class="f">星期<select id="cDay">
+        <option value="1">周一</option><option value="2">周二</option><option value="3">周三</option><option value="4">周四</option>
+        <option value="5">周五</option><option value="6">周六</option><option value="7">周日</option>
+      </select></label>
+      <div class="f"><span>节次</span>
+        <div class="pp"><select id="cP1" aria-label="开始节次"></select><span>到</span><select id="cP2" aria-label="结束节次"></select></div>
+      </div>
+    </div>
+    <div class="row2">
+      <label class="f">开始<input id="cStart" type="time"></label>
+      <label class="f">结束<input id="cEnd" type="time"></label>
+    </div>
+    <div class="row2">
+      <label class="f">地点<input id="cPlace" maxlength="40" placeholder="可不填" autocomplete="off"></label>
+      <label class="f">老师<input id="cTeacher" maxlength="20" placeholder="可不填" autocomplete="off"></label>
+    </div>
+    <div class="row2">
+      <label class="f">上课周<input id="cWeeks" maxlength="40" placeholder="如 1-16，不填为每周" autocomplete="off"></label>
+      <label class="f">单双周<select id="cParity"><option value="all">每周</option><option value="odd">单周</option><option value="even">双周</option></select></label>
+    </div>
+    <p class="err" id="cErr" hidden></p>
+  </div>
+  <div class="dlg-f">
+    <button type="button" class="btn danger" id="cDel" hidden>删除</button>
+    <span class="sp"></span>
+    <button type="button" class="btn" data-close>取消</button>
+    <button type="button" class="btn primary" id="cSave">保存</button>
+  </div>
+</dialog>
+
+<dialog id="dlgImportMenu" aria-labelledby="dimH">
+  <div class="dlg-h"><h3 id="dimH">导入课表</h3></div>
+  <div class="dlg-b">
+    <button type="button" class="btn primary block" id="imPdf">选择教务系统导出的课表 PDF</button>
+    <p class="help">在本机读取，不上传。节次按“我的 → 作息表”换算成时间。</p>
+    <button type="button" class="btn block" id="imCsv">选择 CSV（WakeUp 模板）</button>
+    <button type="button" class="btn ghost block" id="imTpl">下载 CSV 模板</button>
+  </div>
+  <div class="dlg-f"><span class="sp"></span><button type="button" class="btn" data-close>关闭</button></div>
+</dialog>
+
+<dialog id="dlgImport" aria-labelledby="diH">
+  <div class="dlg-h"><h3 id="diH">确认导入</h3></div>
+  <div class="dlg-b">
+    <p class="sub" id="impSum"></p>
+    <ul class="implist" id="impErr"></ul>
+    <ul class="implist" id="impList"></ul>
+    <ul class="implist" id="impOthers"></ul>
+  </div>
+  <div class="dlg-f">
+    <button type="button" class="btn" data-close>取消</button>
+    <span class="sp"></span>
+    <button type="button" class="btn" id="impAppend">追加</button>
+    <button type="button" class="btn primary" id="impReplace">替换现有课表</button>
+  </div>
+</dialog>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<div class="update" id="updateBar" hidden><span>有新版本</span><button type="button" class="btn" id="btnUpdate">更新</button></div>
+<script src="app.js"></script>
+</body>
+</html>

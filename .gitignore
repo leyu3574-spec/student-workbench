@@ -1,0 +1,4 @@
+node_modules/
+android/
+*.keystore
+签名密钥*.txt

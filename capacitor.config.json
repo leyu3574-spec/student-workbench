@@ -1,0 +1,14 @@
+{
+  "appId": "com.student.workbench",
+  "appName": "学生工作台",
+  "webDir": "www",
+  "android": {
+    "adjustMarginsForEdgeToEdge": "auto"
+  },
+  "plugins": {
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_notify",
+      "iconColor": "#5B2A91"
+    }
+  }
+}
