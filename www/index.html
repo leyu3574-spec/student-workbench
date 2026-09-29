@@ -15,6 +15,7 @@
 <nav class="nav" aria-label="主导航">
   <a href="#today" data-tab="today"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg><span>今天</span></a>
   <a href="#week" data-tab="week"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M9.2 4.5v15M14.8 4.5v15M3.5 10h17"/></svg><span>课表</span></a>
+  <a href="#ai" data-tab="ai"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6.5A2.5 2.5 0 0 1 7.5 4h9A2.5 2.5 0 0 1 19 6.5v7a2.5 2.5 0 0 1-2.5 2.5H11l-4 3.5V16h0.5A2.5 2.5 0 0 1 5 13.5z"/><path d="M9 9.5h.01M12 9.5h.01M15 9.5h.01"/></svg><span>助手</span></a>
   <a href="#tasks" data-tab="tasks"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 7l1.8 1.8L9.5 5.5M4.5 13l1.8 1.8 3.2-3.3M4.5 19l1.8 1.8 3.2-3.3M12.5 7.5h7M12.5 13.5h7M12.5 19.5h7"/></svg><span>待办</span><i class="badge" id="navBadge" hidden></i></a>
   <a href="#me" data-tab="me"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20.5c1.2-3.8 4-5.6 7.5-5.6s6.3 1.8 7.5 5.6"/></svg><span>我的</span></a>
 </nav>
@@ -40,16 +41,20 @@
         </svg>
       </a>
     </header>
-    <a class="card route" id="route" href="#tasks" hidden aria-label="赛况">
-      <div class="rt-head"><span class="rt-title">赛况</span><span class="rt-pace" id="rtPace"></span></div>
-      <div class="rt-track">
-        <div class="lane ta"><i class="lane-done" id="taDone"></i><b class="av ta" id="taAv">兔</b></div>
-        <div class="lane me"><i class="lane-done" id="meDone"></i><b class="av me" id="meAv">我</b></div>
-        <span class="rt-marks" id="rtMarks"></span><span class="rt-fin" aria-hidden="true"></span>
+    <a class="race" id="race" href="#tasks" hidden aria-label="赛况">
+      <div class="race-top">
+        <div><h3 id="raceTitle">保研之路</h3><p id="raceSub"></p></div>
+        <span class="race-chip" id="raceChip"></span>
       </div>
-      <div class="rt-pts" id="rtPts"></div>
-      <p class="rt-talk" id="rtTalk"></p>
-      <div class="rt-foot"><span id="rtLeft"></span></div>
+      <div class="race-say"><b id="raceWho">卷王</b><p id="raceLine"></p></div>
+      <div class="gapbar" aria-hidden="true"><small class="gb-l">被追近</small><small class="gb-r">甩开</small><i class="gb-fill" id="gbFill"></i><b class="gb-rv" id="gbRv">卷</b><b class="gb-me" id="gbMe">我</b></div>
+      <div class="race-track">
+        <div class="rlane rv"><i class="rfill" id="rvFill"></i><b class="rav" id="rvAv">卷</b></div>
+        <div class="rlane me"><i class="rfill" id="meFill"></i><b class="rav" id="meAv">我</b></div>
+        <span class="rmarks" id="rMarks"></span><span class="rfin" aria-hidden="true"></span>
+      </div>
+      <div class="rpts" id="rPts"></div>
+      <div class="race-foot"><span id="raceMe"></span><span>按时 KO、天天打卡就跑得快</span></div>
     </a>
     <div class="today-grid">
       <section class="card">
@@ -57,11 +62,12 @@
           <div><h2>今天</h2><p class="sub" id="todaySum"></p></div>
           <button type="button" class="btn" id="btnQuickTask">记作业</button>
         </div>
+        <div class="rrow" id="todayRoutines" hidden></div>
         <div class="plan-bar">
           <button type="button" class="btn primary" id="btnPlan">排今天</button>
+          <button type="button" class="btn" id="btnFree">我现在有空</button>
           <span class="sub" id="planInfo"></span>
         </div>
-        <p class="hint" id="nowHint" hidden><span id="nowHintText"></span><button type="button" class="btn chip" id="nowHintBtn">排进去</button></p>
         <p class="hint warn" id="replanHint" hidden><span id="replanText"></span><button type="button" class="btn chip" id="replanBtn">重排</button></p>
         <div class="ruler" id="ruler"></div>
       </section>
@@ -100,6 +106,18 @@
     </section>
   </section>
 
+  <!-- 小助手 -->
+  <section class="view" id="view-ai" aria-labelledby="hAi">
+    <div class="vh"><h2 id="hAi">小助手</h2><a class="btn ghost" href="#me" id="aiMemLink">记忆</a></div>
+    <div class="chat" id="chatList" aria-live="polite"></div>
+    <div class="composer">
+      <div class="chips" id="chatChips">
+        <button type="button">帮我排一下今天</button><button type="button">我现在有 1 小时</button><button type="button">今晚没空</button><button type="button">我背完单词了</button><button type="button">复盘一下今天</button>
+      </div>
+      <div class="cbar"><textarea id="chatInput" rows="1" placeholder="比如：今晚 7 点到 9 点有社团" aria-label="和小助手说"></textarea><button type="button" class="btn primary" id="chatSend">发送</button></div>
+    </div>
+  </section>
+
   <!-- 待办 -->
   <section class="view" id="view-tasks" aria-labelledby="hTasks">
     <div class="vh">
@@ -108,6 +126,7 @@
     </div>
     <div class="seg narrow" id="taskFilter">
       <button type="button" data-f="open">未完成 <span class="num n"></span></button>
+      <button type="button" data-f="daily">每日 <span class="num n"></span></button>
       <button type="button" data-f="done">已 KO <span class="num n"></span></button>
     </div>
     <div class="seg narrow" id="taskSort">
@@ -127,18 +146,23 @@
         <label class="f">称呼<input id="mNick" maxlength="12" placeholder="首页问候用" autocomplete="off"></label>
         <label class="f">目标<input id="mGoal" maxlength="16" placeholder="可不填" autocomplete="off"></label>
       </div>
-      <p class="help">目标填“南京大学”，首页会出现一场从南工跑到南大的比赛。陪跑的 TA 按学期进度跑，期末最后一天到南大；作业按时 KO 就能跟住 TA，过期没交会掉队，补交后追回来。按比例算，作业多少都一样，每学期重新出发。</p>
-      <div class="sub-sec" id="secPacer" hidden>
-        <h3>陪跑的 TA</h3>
-        <div class="f"><span>TA 是你的</span>
-          <div class="seg" id="mPacerRole"><button type="button" data-v="goal">目标</button><button type="button" data-v="model">榜样</button><button type="button" data-v="company">陪伴</button></div>
-        </div>
+      <label class="f">怎么去<select id="mPath"><option value="保研">保研</option><option value="考研">考研</option></select></label>
+      <p class="help">目标填“南京大学”，首页会出现一场从南工跑到南大的比赛，终点是推免那天。对手按固定配速跑；你按时 KO 作业、每天打卡就跑得比他快，拖延和漏打卡会被他追近。</p>
+      <div class="sub-sec" id="secRival" hidden>
+        <h3>对手</h3>
         <div class="row2">
-          <label class="f">TA 叫<input id="mPacer" maxlength="8" placeholder="兔子" autocomplete="off"></label>
-          <label class="f">TA 对你说<input id="mPacerMsg" maxlength="30" autocomplete="off"></label>
+          <label class="f">对手叫<input id="mRival" maxlength="8" placeholder="卷王" autocomplete="off"></label>
+          <label class="f">终点日期<input id="mFinish" type="date"></label>
         </div>
-        <label class="inline-check"><input type="checkbox" id="mPacerDaily">每天让 TA 换一句新的（需要连上 AI）</label>
+        <p class="help">终点默认 2028 年 9 月 25 日，按往年推免的时间估的，待验证，可以改。</p>
+        <label class="inline-check"><input type="checkbox" id="mRivalDaily">每天让对手换一句新的（需要连上 AI）</label>
       </div>
+    </section>
+    <section class="card sec" id="secMemory">
+      <h3>小助手记得的事</h3>
+      <p class="help">只存在这台设备上；和小助手聊天或排计划时会发给你选的 AI 服务。</p>
+      <ul class="mem" id="mMemList"></ul>
+      <div class="cbar"><input id="mMemText" maxlength="80" placeholder="比如：晚上九点后效率很低" autocomplete="off"><button type="button" class="btn" id="mMemAdd">记下</button></div>
     </section>
     <section class="card sec">
       <h3>AI 模型</h3>
@@ -347,6 +371,32 @@
     <button type="button" class="btn" data-close>先不要</button>
     <button type="button" class="btn primary" id="dpAccept">就这样排</button>
   </div>
+</dialog>
+
+<dialog id="dlgFree" aria-labelledby="dfH">
+  <div class="dlg-h"><h3 id="dfH">有多少时间？</h3></div>
+  <div class="dlg-b">
+    <div class="seg" id="dfMin"><button type="button" data-v="20">20 分</button><button type="button" data-v="40">40 分</button><button type="button" data-v="60">1 小时</button><button type="button" data-v="90">1.5 小时</button><button type="button" data-v="120">2 小时</button></div>
+    <ul class="flist" id="dfList"></ul>
+  </div>
+  <div class="dlg-f"><button type="button" class="btn ghost" id="dfAsk" hidden>问问小助手</button><span class="sp"></span><button type="button" class="btn" data-close>关闭</button></div>
+</dialog>
+
+<dialog id="dlgRoutine" aria-labelledby="drH">
+  <div class="dlg-h"><h3 id="drH">添加每日事项</h3></div>
+  <div class="dlg-b">
+    <label class="f">做什么<input id="rTitle" maxlength="30" placeholder="例如：背英语单词" autocomplete="off"></label>
+    <div class="f"><span>哪几天</span>
+      <div class="days7" id="rDays"><button type="button" data-d="1">一</button><button type="button" data-d="2">二</button><button type="button" data-d="3">三</button><button type="button" data-d="4">四</button><button type="button" data-d="5">五</button><button type="button" data-d="6">六</button><button type="button" data-d="7">日</button></div>
+      <div class="inline" id="rPreset"><button type="button" class="btn chip" data-p="1,2,3,4,5,6,7">每天</button><button type="button" class="btn chip" data-p="1,2,3,4,5">工作日</button><button type="button" class="btn chip" data-p="6,7">周末</button></div>
+    </div>
+    <label class="f">每次多久<select id="rMin"><option value="10">10 分钟</option><option value="15">15 分钟</option><option value="20">20 分钟</option><option value="30">30 分钟</option><option value="45">45 分钟</option><option value="60">1 小时</option></select></label>
+    <div class="f"><span>习惯什么时候做</span>
+      <div class="seg" id="rWin"><button type="button" data-v="morning">早上</button><button type="button" data-v="noon">中午</button><button type="button" data-v="afternoon">下午</button><button type="button" data-v="evening">晚上</button><button type="button" data-v="any">随时</button></div>
+    </div>
+    <p class="err" id="rErr" hidden></p>
+  </div>
+  <div class="dlg-f"><button type="button" class="btn danger" id="rDel" hidden>删除</button><span class="sp"></span><button type="button" class="btn" data-close>取消</button><button type="button" class="btn primary" id="rSave">保存</button></div>
 </dialog>
 
 <dialog id="dlgBlock" aria-labelledby="dbH">
