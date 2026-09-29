@@ -114,7 +114,7 @@
       <div class="chips" id="chatChips">
         <button type="button">帮我排一下今天</button><button type="button">我现在有 1 小时</button><button type="button">今晚没空</button><button type="button">我背完单词了</button><button type="button">复盘一下今天</button>
       </div>
-      <div class="cbar"><textarea id="chatInput" rows="1" placeholder="比如：今晚 7 点到 9 点有社团" aria-label="和小助手说"></textarea><button type="button" class="btn primary" id="chatSend">发送</button></div>
+      <div class="cbar"><button type="button" class="mic" id="chatMic" aria-label="语音输入" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></button><textarea id="chatInput" rows="1" placeholder="想聊什么都行，也可以说今晚几点有空" aria-label="和小助手说"></textarea><button type="button" class="btn primary" id="chatSend">发送</button></div>
     </div>
   </section>
 
@@ -160,9 +160,8 @@
     </section>
     <section class="card sec" id="secMemory">
       <h3>小助手记得的事</h3>
-      <p class="help">只存在这台设备上；和小助手聊天或排计划时会发给你选的 AI 服务。</p>
+      <p class="help">小助手从聊天里自己提炼，你不用动手；不对的点 × 删掉。只存在这台设备上，聊天和排计划时会发给你选的 AI 服务。</p>
       <ul class="mem" id="mMemList"></ul>
-      <div class="cbar"><input id="mMemText" maxlength="80" placeholder="比如：晚上九点后效率很低" autocomplete="off"><button type="button" class="btn" id="mMemAdd">记下</button></div>
     </section>
     <section class="card sec">
       <h3>AI 模型</h3>
@@ -223,7 +222,7 @@
     </section>
     <section class="card sec" id="secNotify" hidden>
       <h3>提醒</h3>
-      <label class="f">截止前多久提醒<select id="mLead">
+      <label class="f">新作业默认提前多久弹窗<select id="mLead">
         <option value="30">30 分钟</option><option value="60">1 小时</option><option value="180">3 小时</option><option value="1440">1 天</option>
       </select></label>
       <ul class="diag" id="mDiag"></ul>
@@ -268,6 +267,9 @@
     <div class="f"><span>优先级</span>
       <div class="seg" id="tPrio"><button type="button" data-v="high">高</button><button type="button" data-v="mid">中</button><button type="button" data-v="low">低</button></div>
     </div>
+    <label class="f">弹窗提醒<select id="tRemind">
+      <option value="0">不提醒</option><option value="30">截止前 30 分钟</option><option value="60">截止前 1 小时</option><option value="180">截止前 3 小时</option><option value="1440">截止前 1 天</option>
+    </select></label>
     <div class="f"><span>状态</span>
       <div class="seg" id="tStatus"><button type="button" data-v="todo">未开始</button><button type="button" data-v="doing">进行中</button><button type="button" data-v="done">已完成</button></div>
     </div>
@@ -401,13 +403,29 @@
 
 <dialog id="dlgBlock" aria-labelledby="dbH">
   <div class="dlg-h"><h3 id="dbH"></h3><p class="sub" id="dbWhen"></p></div>
-  <div class="dlg-b"><p class="note" id="dbReason"></p></div>
+  <div class="dlg-b">
+    <p class="note" id="dbReason"></p>
+    <div class="tedit" id="dbTime">
+      <div class="row2">
+        <label class="f">开始<input id="dbStart" type="time" step="300"></label>
+        <label class="f">时长<select id="dbLen"><option value="15">15 分钟</option><option value="20">20 分钟</option><option value="30">30 分钟</option><option value="45">45 分钟</option><option value="60">1 小时</option><option value="90">1.5 小时</option><option value="120">2 小时</option><option value="150">2.5 小时</option><option value="180">3 小时</option></select></label>
+      </div>
+      <div class="inline"><button type="button" class="btn chip" data-shift="-15">提前 15 分</button><button type="button" class="btn chip" data-shift="15">推后 15 分</button><button type="button" class="btn primary chip" id="dbSave">改时间</button></div>
+      <p class="help">也可以在时间轴上长按色块，直接拖到想要的时间。</p>
+    </div>
+  </div>
   <div class="dlg-f">
     <button type="button" class="btn danger" id="dbDel">删掉这块</button>
     <span class="sp"></span>
     <button type="button" class="btn" data-close>关闭</button>
     <button type="button" class="btn primary" id="dbDone">这块做完了</button>
   </div>
+</dialog>
+
+<dialog id="dlgRemind" aria-labelledby="drmH">
+  <div class="dlg-h"><h3 id="drmH"></h3></div>
+  <div class="dlg-b"><p class="note" id="drmBody"></p></div>
+  <div class="dlg-f"><span class="sp"></span><button type="button" class="btn" data-close>知道了</button><button type="button" class="btn primary" id="drmStart">现在开始</button></div>
 </dialog>
 
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>

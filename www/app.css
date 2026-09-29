@@ -151,6 +151,25 @@ button:focus-visible,a:focus-visible,summary:focus-visible,input:focus-visible{o
 .flist li small{display:block;color:var(--ink-3);font-size:12.5px;margin-top:2px}
 .flist .empty{display:block;border:0}
 
+/* plan picking, dragging */
+.plist label{display:grid;grid-template-columns:22px 92px minmax(0,1fr);gap:8px;align-items:start;cursor:pointer}
+.plist input{width:18px;height:18px;min-height:0;margin:2px 0 0;accent-color:var(--purple)}
+.ev.pl.missed{opacity:.5;outline-color:var(--orange);background:var(--orange-2)}
+.ev.pl.pinned .t::after{content:" ·已调";font-weight:600;color:var(--purple);font-size:11px}
+.ev.pl.dragging{z-index:9;opacity:.95;box-shadow:0 10px 24px rgba(31,22,48,.3);transform:scale(1.02);transition:none}
+.tedit{display:grid;gap:8px;padding-top:8px;border-top:1px dashed var(--line)}
+.prop{margin-top:10px;padding:10px;border-radius:14px;background:var(--purple-2);display:grid;gap:6px}
+.prop label{display:grid;grid-template-columns:20px 88px minmax(0,1fr);gap:6px;align-items:center;font-size:13.5px}
+.prop input{width:17px;height:17px;min-height:0;margin:0;accent-color:var(--purple)}
+.prop .num{color:var(--purple)}
+.prop small{color:var(--ink-3);font-size:12px}
+.prop .done{margin:0;color:var(--green);font-weight:800;font-size:13px}
+.prop-f{display:flex;gap:6px;margin-top:4px}
+.mic{flex:none;width:44px;height:44px;border-radius:50%;border:1.5px solid var(--line);background:var(--card);color:var(--ink-2);display:flex;align-items:center;justify-content:center;cursor:pointer}
+.mic svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round}
+.mic.on{background:var(--orange);border-color:var(--orange);color:#fff;animation:pulse 1.2s ease-in-out infinite}
+@keyframes pulse{50%{box-shadow:0 0 0 8px color-mix(in srgb,var(--orange) 25%,transparent)}}
+
 /* assistant */
 .chat{display:flex;flex-direction:column;gap:10px;padding-bottom:8px}
 .msg{max-width:86%;padding:10px 13px;border-radius:18px;font-size:14.5px;line-height:1.55}
