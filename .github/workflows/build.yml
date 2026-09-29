@@ -26,7 +26,7 @@ jobs:
       - name: 写入版本号
         run: sed -i "s/__BUILD__/${{ github.run_number }}/g" www/app.js www/sw.js
       - name: 安装依赖
-        run: npm install --no-audit --no-fund
+        run: npm install --no-audit --no-fund --legacy-peer-deps
       - name: 带上原生插件的桥接脚本（没有它，通知和文件导出都连不上）
         run: |
           mkdir -p www/vendor/cap
@@ -34,12 +34,14 @@ jobs:
           cp node_modules/@capacitor/local-notifications/dist/plugin.js www/vendor/cap/local-notifications.js
           cp node_modules/@capacitor/filesystem/dist/plugin.js www/vendor/cap/filesystem.js
           cp node_modules/@capacitor/share/dist/plugin.js www/vendor/cap/share.js
+          cp node_modules/@capacitor-community/speech-recognition/dist/plugin.js www/vendor/cap/speech.js || echo "语音插件没找到，跳过"
           ls -la www/vendor/cap
       - name: 生成安卓工程
         run: |
           npx cap add android
           cp -r resources/android/res/. android/app/src/main/res/
-          sed -i "s/versionCode 1$/versionCode ${{ github.run_number }}/; s/versionName \"1.0\"/versionName \"0.5.${{ github.run_number }}\"/" android/app/build.gradle
+          sed -i 's#</manifest>#    <queries><intent><action android:name="android.speech.RecognitionService" /></intent></queries>\n</manifest>#' android/app/src/main/AndroidManifest.xml
+          sed -i "s/versionCode 1$/versionCode ${{ github.run_number }}/; s/versionName \"1.0\"/versionName \"0.6.${{ github.run_number }}\"/" android/app/build.gradle
           npx cap sync android
       - name: 固定签名（覆盖安装时数据不丢）
         env:
@@ -54,12 +56,12 @@ jobs:
       - name: 编译
         run: cd android && ./gradlew assembleDebug --no-daemon
       - name: 发布到 Releases
-        run: cp android/app/build/outputs/apk/debug/app-debug.apk workbench-0.5.${{ github.run_number }}.apk
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk workbench-0.6.${{ github.run_number }}.apk
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.5.${{ github.run_number }}
-          name: 学生工作台 0.5.${{ github.run_number }}
-          files: workbench-0.5.${{ github.run_number }}.apk
+          tag_name: v0.6.${{ github.run_number }}
+          name: 学生工作台 0.6.${{ github.run_number }}
+          files: workbench-0.6.${{ github.run_number }}.apk
 
   web:
     name: 网页版（平板用）
