@@ -1,6 +1,6 @@
 {
   "name": "student-workbench",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "private": true,
   "description": "学生工作台：个人自用，本地优先",
   "scripts": {

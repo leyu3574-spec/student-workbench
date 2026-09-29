@@ -160,8 +160,7 @@
     </section>
     <section class="card sec" id="secMemory">
       <h3>小助手记得的事</h3>
-      <p class="help">小助手从聊天里自己提炼，你不用动手；不对的点 × 删掉。只存在这台设备上，聊天和排计划时会发给你选的 AI 服务。</p>
-      <ul class="mem" id="mMemList"></ul>
+      <button type="button" class="memtile" id="mMemOpen"><span><b id="mMemCount"></b><small id="mMemPeek"></small></span><i>›</i></button>
     </section>
     <section class="card sec">
       <h3>AI 模型</h3>
@@ -180,12 +179,12 @@
     <section class="card sec">
       <h3>规划偏好</h3>
       <div class="row2">
-        <label class="f">晚上最晚排到<select id="mLatest"></select></label>
-        <label class="f">一块最长<select id="mMaxBlock">
-          <option value="45">45 分钟</option><option value="60">1 小时</option><option value="90">1.5 小时</option><option value="120">2 小时</option>
-        </select></label>
+        <label class="f">晚上最晚排到<input id="mLatest" type="time"></label>
+        <label class="f">一块最长（分钟）<input id="mMaxBlock" type="number" min="15" max="240" step="5" inputmode="numeric"></label>
       </div>
-      <p class="help">午饭午休 12:00–13:30、晚饭 17:30–18:30 不排学习，每块之间留 10 分钟。</p>
+      <div class="row2"><label class="f">午饭午休从<input id="mLunchS" type="time"></label><label class="f">到<input id="mLunchE" type="time"></label></div>
+      <div class="row2"><label class="f">晚饭从<input id="mDinnerS" type="time"></label><label class="f">到<input id="mDinnerE" type="time"></label></div>
+      <p class="help">饭点不排学习，每块之间留 10 分钟。</p>
     </section>
     <section class="card sec">
       <h3>教学周</h3>
@@ -222,9 +221,8 @@
     </section>
     <section class="card sec" id="secNotify" hidden>
       <h3>提醒</h3>
-      <label class="f">新作业默认提前多久弹窗<select id="mLead">
-        <option value="30">30 分钟</option><option value="60">1 小时</option><option value="180">3 小时</option><option value="1440">1 天</option>
-      </select></label>
+      <label class="f">新作业默认提前多少分钟弹出<input id="mLead" type="number" min="0" max="10080" step="5" inputmode="numeric"></label>
+      <p class="help">想在应用外醒目地弹出来：到手机“设置 → 通知 → 学生工作台”，把横幅（悬浮）通知和锁屏通知打开；再到电池设置里允许学生工作台后台运行。设好后点下面的测试按钮看看。</p>
       <ul class="diag" id="mDiag"></ul>
       <button type="button" class="btn" id="mTestNotify">10 秒后发一条测试提醒</button>
       <p class="help" id="mNotifyInfo"></p>
@@ -252,10 +250,7 @@
     <label class="f">事项<input id="tTitle" maxlength="80" placeholder="例如：材力作业 第 3 章" autocomplete="off"></label>
     <div class="row2">
       <label class="f">课程<input id="tCourse" maxlength="40" list="courseNames" placeholder="可不填" autocomplete="off"></label>
-      <label class="f">预计用时<select id="tEst">
-        <option value="30">30 分钟</option><option value="45">45 分钟</option><option value="60">1 小时</option><option value="90">1.5 小时</option>
-        <option value="120">2 小时</option><option value="180">3 小时</option><option value="240">4 小时</option>
-      </select></label>
+      <label class="f">预计用时（分钟）<input id="tEst" type="number" min="5" max="600" step="5" inputmode="numeric"></label>
     </div>
     <div class="row2">
       <label class="f">日期<input id="tDate" type="date"></label>
@@ -267,9 +262,8 @@
     <div class="f"><span>优先级</span>
       <div class="seg" id="tPrio"><button type="button" data-v="high">高</button><button type="button" data-v="mid">中</button><button type="button" data-v="low">低</button></div>
     </div>
-    <label class="f">弹窗提醒<select id="tRemind">
-      <option value="0">不提醒</option><option value="30">截止前 30 分钟</option><option value="60">截止前 1 小时</option><option value="180">截止前 3 小时</option><option value="1440">截止前 1 天</option>
-    </select></label>
+    <div class="f"><span>截止前多少分钟弹出提醒（0 为不提醒）</span><div class="numrow"><input id="tRemind" type="number" min="0" max="10080" step="5" inputmode="numeric"><button type="button" class="btn chip" data-rm="30">30分</button><button type="button" class="btn chip" data-rm="60">1时</button><button type="button" class="btn chip" data-rm="180">3时</button><button type="button" class="btn chip" data-rm="1440">1天</button></div></div>
+    <div class="numrow est"><button type="button" class="btn chip" data-est="30">30分</button><button type="button" class="btn chip" data-est="60">1时</button><button type="button" class="btn chip" data-est="90">1.5时</button><button type="button" class="btn chip" data-est="120">2时</button><button type="button" class="btn chip" data-est="180">3时</button></div>
     <div class="f"><span>状态</span>
       <div class="seg" id="tStatus"><button type="button" data-v="todo">未开始</button><button type="button" data-v="doing">进行中</button><button type="button" data-v="done">已完成</button></div>
     </div>
@@ -369,6 +363,7 @@
   </div>
   <div class="dlg-f">
     <button type="button" class="btn ghost" id="dpRetry">重新排</button>
+    <button type="button" class="btn ghost" id="dpAll" hidden>全部重排</button>
     <span class="sp"></span>
     <button type="button" class="btn" data-close>先不要</button>
     <button type="button" class="btn primary" id="dpAccept">就这样排</button>
@@ -392,7 +387,7 @@
       <div class="days7" id="rDays"><button type="button" data-d="1">一</button><button type="button" data-d="2">二</button><button type="button" data-d="3">三</button><button type="button" data-d="4">四</button><button type="button" data-d="5">五</button><button type="button" data-d="6">六</button><button type="button" data-d="7">日</button></div>
       <div class="inline" id="rPreset"><button type="button" class="btn chip" data-p="1,2,3,4,5,6,7">每天</button><button type="button" class="btn chip" data-p="1,2,3,4,5">工作日</button><button type="button" class="btn chip" data-p="6,7">周末</button></div>
     </div>
-    <label class="f">每次多久<select id="rMin"><option value="10">10 分钟</option><option value="15">15 分钟</option><option value="20">20 分钟</option><option value="30">30 分钟</option><option value="45">45 分钟</option><option value="60">1 小时</option></select></label>
+    <label class="f">每次多久（分钟）<input id="rMin" type="number" min="5" max="180" step="5" inputmode="numeric"></label>
     <div class="f"><span>习惯什么时候做</span>
       <div class="seg" id="rWin"><button type="button" data-v="morning">早上</button><button type="button" data-v="noon">中午</button><button type="button" data-v="afternoon">下午</button><button type="button" data-v="evening">晚上</button><button type="button" data-v="any">随时</button></div>
     </div>
@@ -427,6 +422,19 @@
   <div class="dlg-b"><p class="note" id="drmBody"></p></div>
   <div class="dlg-f"><span class="sp"></span><button type="button" class="btn" data-close>知道了</button><button type="button" class="btn primary" id="drmStart">现在开始</button></div>
 </dialog>
+
+<dialog id="dlgMemory" aria-labelledby="dmH">
+  <div class="dlg-h"><h3 id="dmH">小助手记得的事</h3><p class="sub">聊天时它会自己记；不对的点 × 删掉，也可以自己补一条。只存在这台设备上，聊天和排计划时会发给你选的 AI 服务。</p></div>
+  <div class="dlg-b"><ul class="mem" id="memList"></ul>
+    <div class="cbar"><input id="memText" maxlength="80" placeholder="比如：晚上九点后效率很低" autocomplete="off"><button type="button" class="btn" id="memAdd">记下</button></div></div>
+  <div class="dlg-f"><span class="sp"></span><button type="button" class="btn primary" data-close>好</button></div>
+</dialog>
+
+<div class="voice" id="voice" hidden>
+  <div class="vwave" id="vWave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+  <p class="hint" id="vText">说吧，我在听</p>
+  <div class="vbtns"><button type="button" class="btn" id="vCancel">取消</button><button type="button" class="btn primary" id="vDone">说完了</button></div>
+</div>
 
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 <div class="update" id="updateBar" hidden><span>有新版本</span><button type="button" class="btn" id="btnUpdate">更新</button></div>

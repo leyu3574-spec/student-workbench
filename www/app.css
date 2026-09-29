@@ -170,6 +170,29 @@ button:focus-visible,a:focus-visible,summary:focus-visible,input:focus-visible{o
 .mic.on{background:var(--orange);border-color:var(--orange);color:#fff;animation:pulse 1.2s ease-in-out infinite}
 @keyframes pulse{50%{box-shadow:0 0 0 8px color-mix(in srgb,var(--orange) 25%,transparent)}}
 
+/* voice sheet */
+.voice{position:fixed;z-index:40;left:12px;right:12px;bottom:calc(84px + env(safe-area-inset-bottom,0px));padding:18px 16px 14px;border-radius:24px;background:linear-gradient(160deg,#241042,#120A22);color:#F4EEFF;box-shadow:0 16px 40px rgba(20,14,31,.45);display:grid;gap:12px;justify-items:center}
+.vwave{display:flex;align-items:center;justify-content:center;gap:6px;height:64px}
+.vwave i{display:block;width:6px;height:56px;border-radius:3px;background:linear-gradient(180deg,#FF7A2F,#FF4FA3 50%,#7C4DFF);transform:scaleY(.2);transform-origin:center;box-shadow:0 0 10px rgba(255,79,163,.45)}
+.voice p{margin:0;min-height:22px;font-size:15px;font-weight:700;text-align:center}
+.voice p.hint{color:rgba(244,238,255,.6);font-weight:600}
+.vbtns{display:flex;gap:10px}
+.vbtns .btn{min-width:110px}
+.vbtns .btn:not(.primary){background:rgba(255,255,255,.1);border-color:transparent;color:#F4EEFF}
+.memtile{all:unset;box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;padding:12px 14px;border-radius:14px;background:var(--soft);border:1px solid var(--line);cursor:pointer}
+.memtile span{display:grid;gap:2px;min-width:0}
+.memtile b{font-size:15px;color:var(--purple)}
+.memtile small{color:var(--ink-3);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.memtile i{font-style:normal;font-size:22px;color:var(--ink-3)}
+#dlgMemory .mem{max-height:46vh;overflow:auto}
+.numrow{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.numrow input{flex:1;min-width:90px}
+.numrow.est{margin-top:-6px}
+.ev.pl.event{background:color-mix(in srgb,var(--c2) 18%,var(--card));outline:1.5px solid var(--c2)}
+.ev.pl.event::before{background:var(--c2)}
+.ev.pl.event .t::before{content:"日程 ";color:var(--c2);font-size:11px;font-weight:800}
+.prop em{font-style:normal;margin-left:6px;padding:0 6px;border-radius:6px;background:var(--orange-2);color:var(--orange);font-size:11px;font-weight:700}
+
 /* assistant */
 .chat{display:flex;flex-direction:column;gap:10px;padding-bottom:8px}
 .msg{max-width:86%;padding:10px 13px;border-radius:18px;font-size:14.5px;line-height:1.55}
