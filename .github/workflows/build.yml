@@ -41,7 +41,7 @@ jobs:
           npx cap add android
           cp -r resources/android/res/. android/app/src/main/res/
           sed -i 's#</manifest>#    <queries><intent><action android:name="android.speech.RecognitionService" /></intent></queries>\n</manifest>#' android/app/src/main/AndroidManifest.xml
-          sed -i "s/versionCode 1$/versionCode ${{ github.run_number }}/; s/versionName \"1.0\"/versionName \"0.6.${{ github.run_number }}\"/" android/app/build.gradle
+          sed -i "s/versionCode 1$/versionCode ${{ github.run_number }}/; s/versionName \"1.0\"/versionName \"0.7.${{ github.run_number }}\"/" android/app/build.gradle
           npx cap sync android
       - name: 固定签名（覆盖安装时数据不丢）
         env:
@@ -56,12 +56,12 @@ jobs:
       - name: 编译
         run: cd android && ./gradlew assembleDebug --no-daemon
       - name: 发布到 Releases
-        run: cp android/app/build/outputs/apk/debug/app-debug.apk workbench-0.6.${{ github.run_number }}.apk
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk workbench-0.7.${{ github.run_number }}.apk
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.6.${{ github.run_number }}
-          name: 学生工作台 0.6.${{ github.run_number }}
-          files: workbench-0.6.${{ github.run_number }}.apk
+          tag_name: v0.7.${{ github.run_number }}
+          name: 学生工作台 0.7.${{ github.run_number }}
+          files: workbench-0.7.${{ github.run_number }}.apk
 
   web:
     name: 网页版（平板用）
