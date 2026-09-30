@@ -262,8 +262,7 @@
     <div class="f"><span>优先级</span>
       <div class="seg" id="tPrio"><button type="button" data-v="high">高</button><button type="button" data-v="mid">中</button><button type="button" data-v="low">低</button></div>
     </div>
-    <div class="f"><span>截止前多少分钟弹出提醒（0 为不提醒）</span><div class="numrow"><input id="tRemind" type="number" min="0" max="10080" step="5" inputmode="numeric"><button type="button" class="btn chip" data-rm="30">30分</button><button type="button" class="btn chip" data-rm="60">1时</button><button type="button" class="btn chip" data-rm="180">3时</button><button type="button" class="btn chip" data-rm="1440">1天</button></div></div>
-    <div class="numrow est"><button type="button" class="btn chip" data-est="30">30分</button><button type="button" class="btn chip" data-est="60">1时</button><button type="button" class="btn chip" data-est="90">1.5时</button><button type="button" class="btn chip" data-est="120">2时</button><button type="button" class="btn chip" data-est="180">3时</button></div>
+    <div class="f"><span>截止前多少分钟弹出提醒（0 为不提醒）</span><input id="tRemind" type="number" min="0" max="10080" step="1" inputmode="numeric"></div>
     <div class="f"><span>状态</span>
       <div class="seg" id="tStatus"><button type="button" data-v="todo">未开始</button><button type="button" data-v="doing">进行中</button><button type="button" data-v="done">已完成</button></div>
     </div>
@@ -401,12 +400,13 @@
   <div class="dlg-b">
     <p class="note" id="dbReason"></p>
     <div class="tedit" id="dbTime">
+      <label class="f">名字<input id="dbTitle" maxlength="40" autocomplete="off"></label>
       <div class="row2">
-        <label class="f">开始<input id="dbStart" type="time" step="300"></label>
-        <label class="f">时长<select id="dbLen"><option value="15">15 分钟</option><option value="20">20 分钟</option><option value="30">30 分钟</option><option value="45">45 分钟</option><option value="60">1 小时</option><option value="90">1.5 小时</option><option value="120">2 小时</option><option value="150">2.5 小时</option><option value="180">3 小时</option></select></label>
+        <label class="f">开始<input id="dbStart" type="time"></label>
+        <label class="f">结束<input id="dbEnd" type="time"></label>
       </div>
-      <div class="inline"><button type="button" class="btn chip" data-shift="-15">提前 15 分</button><button type="button" class="btn chip" data-shift="15">推后 15 分</button><button type="button" class="btn primary chip" id="dbSave">改时间</button></div>
-      <p class="help">也可以在时间轴上长按色块，直接拖到想要的时间。</p>
+      <button type="button" class="btn primary" id="dbSave">保存</button>
+      <p class="help">也可以在时间轴上长按色块直接拖。和别的安排撞了，别的会自动往后顺。</p>
     </div>
   </div>
   <div class="dlg-f">

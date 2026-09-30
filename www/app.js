@@ -1,12 +1,12 @@
 (() => {
 'use strict';
 
-const VERSION = '0.7.__BUILD__';
+const VERSION = '0.8.__BUILD__';
 const TEST_ID = 2100000000; // outside the range nid() produces
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 const WD = ['一', '二', '三', '四', '五', '六', '日'];
-const PX_DAY = 0.8, PX_WEEK = 1; // px per minute: today ruler / week grid
+const PX_DAY = 1.1, PX_WEEK = 1; // roomier day timeline so short blocks stay readable // px per minute: today ruler / week grid
 const LS_THEME = 'swb:theme', LS_STATE = 'swb:state:v1', LS_AUTOBAK = 'swb:autobak';
 const cap = window.Capacitor;
 const isNative = !!(cap && typeof cap.isNativePlatform === 'function' && cap.isNativePlatform());
@@ -321,7 +321,7 @@ function armDelete(btn, fn) {
 
 // dialogs: the Android back button closes an open dialog instead of leaving the page
 let ignorePop = false;
-function openDlg(d) { d.showModal(); try { history.pushState({ dlg: d.id }, ''); } catch (e) { /* ignore */ } }
+function openDlg(d) { const src = lastTap; d.showModal(); growFrom(d, src); try { history.pushState({ dlg: d.id }, ''); } catch (e) { /* ignore */ } }
 function initDialogs() {
   $$('dialog').forEach(d => {
     d.addEventListener('click', e => { if (e.target === d) d.close(); });
@@ -335,6 +335,95 @@ function initDialogs() {
     const open = $$('dialog').find(x => x.open);
     if (open) open.close();
   });
+}
+
+/* ---------- motion: one continuous take ----------
+   Idea borrowed from onetake (github.com/feitangyuan/onetake): at every hand-off one element survives and
+   visibly becomes the next thing — a dialog grows out of what you tapped, a finished task leaves a spark that
+   flies to where it counts, planned blocks fly from the list onto the timeline, tabs pan like one camera.
+   Written from scratch for this app; nothing from that repo is copied. */
+const calm = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+const EASE = 'cubic-bezier(.2,.8,.2,1)', SPRING = 'cubic-bezier(.34,1.56,.64,1)';
+let lastTap = null, lastTapAt = 0;
+document.addEventListener('pointerdown', e => { lastTap = e.target.closest('button, a, .ev, .cb, .rchip, li'); lastTapAt = Date.now(); }, true);
+function growFrom(dlg, src) {
+  if (calm()) return;
+  const pop = () => { dlg.animate([{ opacity: 0, transform: 'translateY(14px) scale(.97)' }, { opacity: 1, transform: 'none' }], { duration: 260, easing: EASE }); };
+  if (!src || !src.isConnected || Date.now() - lastTapAt > 900 || dlg.contains(src)) { pop(); return; }
+  const r = src.getBoundingClientRect(), d = dlg.getBoundingClientRect();
+  if (!r.width || !d.width) { pop(); return; }
+  const dx = (r.left + r.width / 2) - (d.left + d.width / 2), dy = (r.top + r.height / 2) - (d.top + d.height / 2);
+  dlg.animate([{ transform: `translate(${dx}px,${dy}px) scale(${Math.max(.08, r.width / d.width)},${Math.max(.05, r.height / d.height)})`, opacity: .5 }, { transform: 'none', opacity: 1 }], { duration: 400, easing: EASE });
+  Array.from(dlg.children).forEach((ch, i) => ch.animate([{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }], { duration: 260, delay: 150 + i * 40, fill: 'backwards', easing: 'ease-out' }));
+}
+function shake(el, k) {
+  if (calm() || !el) return;
+  k = k || 1;
+  el.animate([{ transform: 'none' }, { transform: `translate(${-3 * k}px,1px)` }, { transform: `translate(${3 * k}px,-1px)` }, { transform: `translate(${-2 * k}px,0)` }, { transform: 'none' }], { duration: 260, easing: 'ease-out' });
+}
+// a spark leaves one place and lands in another along an arc; the target gives a small bump when it arrives
+function spark(fromEl, toEl) {
+  if (calm() || !fromEl || !toEl || !fromEl.isConnected || !toEl.isConnected) return;
+  const a = fromEl.getBoundingClientRect(), b = toEl.getBoundingClientRect();
+  const x0 = a.left + a.width / 2, y0 = a.top + a.height / 2, dx = b.left + b.width / 2 - x0, dy = b.top + b.height / 2 - y0;
+  const dot = mk(document.body, 'i', 'spark');
+  dot.style.left = x0 + 'px'; dot.style.top = y0 + 'px';
+  dot.animate([
+    { transform: 'translate(-50%,-50%) scale(.6)', opacity: 0 },
+    { transform: 'translate(-50%,-50%) scale(1.3)', opacity: 1, offset: .12 },
+    { transform: `translate(calc(-50% + ${dx * .45}px),calc(-50% + ${dy * .45 - 70}px)) scale(1.1)`, offset: .55 },
+    { transform: `translate(calc(-50% + ${dx}px),calc(-50% + ${dy}px)) scale(.5)`, opacity: .9 }
+  ], { duration: 720, easing: EASE }).onfinish = () => {
+    dot.remove();
+    toEl.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.22)' }, { transform: 'scale(1)' }], { duration: 380, easing: SPRING });
+  };
+}
+// tabs sit on one strip; switching pans the camera toward the new one, overshoots a hair, then holds still
+function panTo(view, dir) {
+  if (calm() || !dir) return;
+  view.animate([{ transform: `translateX(${dir * 36}px)`, opacity: 0 }, { transform: `translateX(${-dir * 4}px)`, opacity: 1, offset: .72 }, { transform: 'none', opacity: 1 }], { duration: 440, easing: EASE });
+}
+function movePill() {
+  const nav = $('.nav'), cur = $('.nav a[aria-current="page"]');
+  let pill = $('.nav .pill');
+  if (!pill) pill = mk(nav, 'i', 'pill');
+  if (!cur) return;
+  const n = nav.getBoundingClientRect(), r = cur.getBoundingClientRect();
+  pill.style.width = r.width + 'px'; pill.style.height = r.height + 'px';
+  pill.style.transform = `translate(${r.left - n.left - nav.clientLeft}px,${r.top - n.top - nav.clientTop}px)`;
+}
+// planned blocks fly from the rows you picked to their places on the timeline
+function flyInto(rects, ids) {
+  if (calm()) return;
+  ids.forEach((id, i) => {
+    const el = $(`#ruler [data-id="${id}"]`), from = rects[i];
+    if (!el || !from) return;
+    const to = el.getBoundingClientRect();
+    el.animate([{ transform: `translate(${from.left - to.left}px,${from.top - to.top}px) scale(${Math.max(.3, from.width / to.width)},${Math.max(.3, from.height / to.height)})`, opacity: .4 }, { transform: 'none', opacity: 1 }],
+      { duration: 620, delay: 80 + i * 70, easing: SPRING, fill: 'backwards' });
+  });
+}
+// first launch of the day: the 工 is drawn, your greeting appears, then flies to its seat while the page grows around it
+function introTake() {
+  const key = 'swb:intro', today = ymd(new Date());
+  try { if (calm() || localStorage.getItem(key) === today || location.hash.slice(1) && location.hash !== '#today') return; localStorage.setItem(key, today); } catch (e) { return; }
+  const ov = mk(document.body, 'div', 'take');
+  ov.innerHTML = `<svg viewBox="0 0 100 100" aria-hidden="true"><path d="M24 28H76M50 28V72M20 72H80"/><path class="u" d="M30 84H70"/></svg><p>${esc($('#hello').textContent)}</p>`;
+  const paths = $$('path', ov), p = $('p', ov);
+  paths.forEach((pa, i) => { const len = pa.getTotalLength(); pa.style.strokeDasharray = len; pa.animate([{ strokeDashoffset: len }, { strokeDashoffset: 0 }], { duration: 520, delay: i * 260, easing: EASE, fill: 'both' }); });
+  p.animate([{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'none' }], { duration: 320, delay: 700, easing: EASE, fill: 'both' });
+  let done = false;
+  const land = () => {
+    if (done) return; done = true;
+    const to = $('#hello').getBoundingClientRect(), from = p.getBoundingClientRect();
+    p.animate([{ transform: 'none' }, { transform: `translate(${to.left - from.left}px,${to.top - from.top}px) scale(${to.height / Math.max(1, from.height)})`, color: getComputedStyle($('#hello')).color }], { duration: 560, easing: EASE, fill: 'forwards' });
+    $('svg', ov).animate([{ opacity: 1 }, { opacity: 0, transform: 'scale(.4) translateY(-40px)' }], { duration: 360, easing: EASE, fill: 'forwards' });
+    ov.animate([{ backgroundColor: 'rgba(18,10,34,1)' }, { backgroundColor: 'rgba(18,10,34,0)' }], { duration: 520, delay: 120, easing: EASE, fill: 'forwards' }).onfinish = () => ov.remove();
+    $$('#view-today .hero-date, #view-today .hero-meta, #view-today .oval, #race, #view-today .today-grid > .card').forEach((el, i) =>
+      el.animate([{ opacity: 0, transform: 'translateY(22px)' }, { opacity: 1, transform: 'none' }], { duration: 560, delay: 260 + i * 90, easing: EASE, fill: 'backwards' }));
+  };
+  setTimeout(land, 1150);
+  ov.addEventListener('click', land);
 }
 
 /* ---------- files ---------- */
@@ -552,7 +641,7 @@ function freeSlots(date, fromMin, keepBlocks) {
   if (end > cur) out.push([cur, end]);
   return out.filter(([a, b]) => b - a >= 10);
 }
-function keptBlocks(date, fromMin, exclude) { return plansOn(date).filter(b => b.status !== 'missed' && !(exclude && exclude.has(b.id))); }
+function keptBlocks(date, fromMin, exclude) { return plansOn(date).filter(b => b.status === 'planned' && !(exclude && exclude.has(b.id))); }
 // everything that still needs time today: work with deadlines and today's routines
 function planItems(now, raw, exclude) {
   const date = ymd(now), items = [], nowMin = nowMinOf(now), ahead = new Map();
@@ -784,35 +873,45 @@ function replaceFuture(date, fromMin, blocks, source) {
 }
 function acceptPlan() {
   if (!planDraft) return;
-  const picked = $$('#dpList input[data-i]').filter(c => c.checked).map(c => planDraft.blocks[+c.dataset.i]);
+  const rows = $$('#dpList input[data-i]').filter(c => c.checked);
+  const picked = rows.map(c => planDraft.blocks[+c.dataset.i]), rects = rows.map(c => c.closest('li').getBoundingClientRect()), ids = [];
   const t = Date.now();
   planDraft.replace.forEach(id => { const b = S.plans.find(x => x.id === id); if (b && b.status === 'planned') { b.deletedAt = t; b.updatedAt = t; } });
-  picked.forEach(b => S.plans.push(normPlan(Object.assign({ id: newId(), date: planDraft.date, source: planDraft.source, status: 'planned', updatedAt: t }, b))));
+  picked.forEach(b => { const nb = normPlan(Object.assign({ id: newId(), date: planDraft.date, source: planDraft.source, status: 'planned', updatedAt: t }, b)); ids.push(nb.id); S.plans.push(nb); });
   planDraft = null;
   commit('plans');
   $('#dlgPlan').close();
+  requestAnimationFrame(() => flyInto(rects, ids));
   toast(`已排进时间轴：${picked.length} 块，长按色块可以拖动调整`);
 }
-// fixed things (classes, meals, appointments, blocks you placed) win; other blocks slide to the next free time
+// who gives way: classes and appointments never move; among blocks you placed, the most recent edit wins;
+// everything else slides to the next free time. Finished blocks are history and never get in the way.
+let lastMoves = [];
 function resolveOverlaps() {
-  const today = ymd(new Date()), nowMin = nowMinOf(new Date()), latest = S.settings.plan.latest;
-  Array.from(new Set(alive(S.plans).filter(b => b.date >= today).map(b => b.date))).forEach(date => {
-    const day = parseYMD(date), live = plansOn(date).filter(b => b.status !== 'missed');
-    const taken = classesOn(day).map(c => [toMin(c.start), toMin(c.end)]).concat(meals().map(([a, b]) => [toMin(a), toMin(b)]), busyOn(date).map(b => [toMin(b.start), toMin(b.end)]));
-    const firm = live.filter(b => b.pinned || b.kind === 'event' || b.status === 'done' || (date === today && toMin(b.start) < nowMin));
-    firm.forEach(b => taken.push([toMin(b.start), toMin(b.end)]));
-    live.filter(b => !firm.includes(b)).sort((x, y) => toMin(x.start) - toMin(y.start)).forEach(b => {
-      const len = blockMin(b), a0 = toMin(b.start);
-      const clash = (s0, e0) => taken.some(([x, y]) => s0 < y && e0 > x);
+  const now = new Date(), today = ymd(now), nowMin = nowMinOf(now), latest = S.settings.plan.latest;
+  lastMoves = [];
+  Array.from(new Set(alive(S.plans).filter(b => b.date >= today && b.status === 'planned').map(b => b.date))).forEach(date => {
+    const day = parseYMD(date), live = plansOn(date).filter(b => b.status === 'planned');
+    const hard = classesOn(day).map(c => [toMin(c.start), toMin(c.end)]).concat(busyOn(date).map(b => [toMin(b.start), toMin(b.end)]));
+    const fixed = live.filter(b => b.kind === 'event' || (date === today && toMin(b.start) < nowMin));
+    fixed.forEach(b => hard.push([toMin(b.start), toMin(b.end)]));
+    const placed = hard.slice(), mealSpans = meals().map(([x, y]) => [toMin(x), toMin(y)]);
+    const place = (b, avoidMeals) => {
+      const len = blockMin(b), a0 = toMin(b.start), clash = (s0, e0) => placed.concat(avoidMeals ? mealSpans : []).some(([x, y]) => s0 < y && e0 > x);
       if (clash(a0, a0 + len)) {
         let t = a0;
         while (t + len <= latest && clash(t, t + len)) t += 5;
-        if (t + len <= latest) { b.start = fmtMin(t); b.end = fmtMin(t + len); } else { b.status = 'missed'; b.reason = '今天放不下了'; }
+        const from = b.start;
+        if (t + len <= latest) { b.start = fmtMin(t); b.end = fmtMin(t + len); lastMoves.push({ title: b.title, from, to: b.start }); }
+        else { b.status = 'missed'; b.reason = '今天放不下了'; lastMoves.push({ title: b.title, from, to: '' }); }
         touch(b);
       }
-      if (b.status !== 'missed') taken.push([toMin(b.start), toMin(b.end)]);
-    });
+      if (b.status === 'planned') placed.push([toMin(b.start), toMin(b.end)]);
+    };
+    live.filter(b => b.pinned && !fixed.includes(b)).sort((x, y) => y.updatedAt - x.updatedAt).forEach(b => place(b, false));
+    live.filter(b => !b.pinned && !fixed.includes(b)).sort((x, y) => toMin(x.start) - toMin(y.start)).forEach(b => place(b, true));
   });
+  return lastMoves;
 }
 // finished or deleted work frees its future time
 function reconcilePlans() {
@@ -833,7 +932,7 @@ function compactPlan(now) {
   const date = ymd(now), fromMin = ceil5(now), latest = S.settings.plan.latest;
   const ahead = plansOn(date).filter(b => b.status === 'planned' && toMin(b.start) >= fromMin).sort((x, y) => toMin(x.start) - toMin(y.start));
   const fixed = classesOn(now).map(c => [toMin(c.start), toMin(c.end)]).concat(meals().map(([a, b]) => [toMin(a), toMin(b)]), busyOn(date).map(b => [toMin(b.start), toMin(b.end)]),
-    plansOn(date).filter(b => b.status === 'done' || (b.status === 'planned' && (b.pinned || toMin(b.start) < fromMin))).map(b => [toMin(b.start), toMin(b.end)]));
+    plansOn(date).filter(b => b.status === 'planned' && (b.pinned || b.kind === 'event' || toMin(b.start) < fromMin)).map(b => [toMin(b.start), toMin(b.end)]));
   const clear = (a, b) => b <= latest && !fixed.some(([x, y]) => a < y && b > x);
   let cursor = fromMin, moved = false;
   ahead.forEach(b => {
@@ -874,9 +973,11 @@ function carryOver() {
 let blockId = null, suppressClick = false;
 function finishBlock(b) {
   const now = new Date(), nowMin = nowMinOf(now), today = ymd(now);
+  const notStarted = b.date > today || (b.date === today && toMin(b.start) > nowMin);
   b.status = 'done'; touch(b);
   const early = toMin(b.end) - nowMin;
-  if (b.date === today && early > 0 && b.kind !== 'event') b.end = fmtMin(Math.max(toMin(b.start) + 5, nowMin)); // finished early: the rest is free again
+  if (notStarted && b.kind !== 'event') b.deletedAt = Date.now(); // done before it began: nothing to show on the timeline
+  else if (b.date === today && early > 0 && b.kind !== 'event') b.end = fmtMin(Math.max(toMin(b.start) + 5, nowMin)); // finished early: the rest is free again
   let msg = early >= 10 && b.kind !== 'event' ? `提前 ${early} 分钟做完` : '这一块完成了';
   if (b.kind === 'task' || b.kind === 'event') {
     const t = S.tasks.find(x => x.id === b.taskId && !x.deletedAt);
@@ -898,26 +999,42 @@ function openBlock(id) {
   $('#dbH').textContent = b.title;
   $('#dbWhen').textContent = `${b.source === 'ai' ? 'AI 排的' : '本地排的'}${b.pinned ? '，你调过时间' : ''}${b.status === 'done' ? '，已完成' : b.status === 'missed' ? '，没做' : ''}`;
   $('#dbReason').textContent = b.reason || '';
+  $('#dbTitle').value = b.title;
   $('#dbStart').value = b.start;
-  $('#dbLen').value = String([15, 20, 30, 45, 60, 90, 120, 150, 180].reduce((p, c) => Math.abs(c - blockMin(b)) < Math.abs(p - blockMin(b)) ? c : p, 60));
-  $('#dbTime').hidden = b.status !== 'planned';
+  $('#dbEnd').value = b.end;
+  $('#dbTime').hidden = b.status === 'missed';
   $('#dbDone').hidden = b.status === 'done';
   resetDel($('#dbDel'), true); $('#dbDel').textContent = '删掉这块';
   openDlg($('#dlgBlock'));
 }
 // your own time changes: checked against classes and other plans, then pinned so nothing moves them
-function setBlockTime(id, start, len) {
+function setBlockTime(id, start, len, title) {
   const b = S.plans.find(x => x.id === id && !x.deletedAt);
   if (!b) return false;
   const date = b.date, s0 = Math.max(0, Math.min(1439 - len, start)), e0 = s0 + len;
-  const others = classesOn(parseYMD(date)).map(c => [toMin(c.start), toMin(c.end), '有课']).concat(busyOn(date).map(x => [toMin(x.start), toMin(x.end), '你说过没空']),
-    plansOn(date).filter(x => x.id !== id && x.status !== 'missed').map(x => [toMin(x.start), toMin(x.end), '已经排了别的']));
-  const hit = others.find(([x, y]) => s0 < y && e0 > x);
+  if (len < 5) { toast('时长至少 5 分钟'); return false; }
+  const walls = classesOn(parseYMD(date)).map(c => [toMin(c.start), toMin(c.end), '有课']).concat(busyOn(date).map(x => [toMin(x.start), toMin(x.end), '你说过没空']),
+    b.kind === 'event' ? [] : plansOn(date).filter(x => x.id !== id && x.kind === 'event' && x.status === 'planned').map(x => [toMin(x.start), toMin(x.end), '是日程「' + x.title + '」']));
+  const hit = walls.find(([x, y]) => s0 < y && e0 > x);
   if (hit) { toast(`${fmtMin(hit[0])}–${fmtMin(hit[1])} ${hit[2]}，放不下`); renderToday(); return false; }
-  b.start = fmtMin(s0); b.end = fmtMin(e0); b.pinned = true; touch(b);
+  const moved = b.start !== fmtMin(s0) || b.end !== fmtMin(e0);
+  b.start = fmtMin(s0); b.end = fmtMin(e0); b.pinned = b.pinned || moved;
+  if (title && title !== b.title) renameBlock(b, title);
+  touch(b);
   commit('plans');
-  toast(`挪到 ${b.start}–${b.end}`);
+  const shifted = lastMoves.filter(m => m.title !== b.title);
+  toast(`${b.title}：${b.start}–${b.end}` + (shifted.length ? `，${shifted.map(m => m.to ? `${m.title}顺延到 ${m.to}` : `${m.title}今天放不下了`).join('，')}` : ''));
   return true;
+}
+// renaming a block that shows its to-do's name renames the to-do too, so both lists agree
+function renameBlock(b, title) {
+  title = title.trim().slice(0, 40);
+  if (!title) return;
+  const t = (b.kind === 'task' || b.kind === 'event') ? S.tasks.find(x => x.id === b.taskId && !x.deletedAt) : null;
+  const r = b.kind === 'routine' ? S.routines.find(x => x.id === b.taskId && !x.deletedAt) : null;
+  if (t && (t.title === b.title || b.kind === 'event')) { t.title = title; touch(t); }
+  if (r && r.title === b.title) { r.title = title; touch(r); }
+  b.title = title;
 }
 function enableDrag(el, b, dayStart) {
   let timer = null, dragging = false, y0 = 0, top0 = 0, ns = null;
@@ -1031,9 +1148,9 @@ function runTools(calls, now) {
       const a = toMin(str(x.start)), e = toMin(str(x.end));
       if (!b0 || a == null) return;
       const len = e != null && e > a ? e - a : blockMin(b0), old = `${b0.start}–${b0.end}`;
-      const clash = classesOn(now).map(c => [toMin(c.start), toMin(c.end)]).concat(plansOn(date).filter(o => o.id !== b0.id && o.status !== 'missed').map(o => [toMin(o.start), toMin(o.end)])).some(([p, q]) => a < q && a + len > p);
+      const clash = classesOn(now).map(c => [toMin(c.start), toMin(c.end)]).concat(plansOn(date).filter(o => o.id !== b0.id && o.status === 'planned' && o.kind === 'event').map(o => [toMin(o.start), toMin(o.end)])).some(([p, q]) => a < q && a + len > p);
       if (clash) { notes.push(`${b0.title} 挪不到 ${fmtMin(a)}，那里已经有安排`); return; }
-      b0.start = fmtMin(a); b0.end = fmtMin(a + len); b0.pinned = true; touch(b0);
+      b0.start = fmtMin(a); b0.end = fmtMin(a + len); b0.pinned = true; touch(b0); // later: others make room in resolveOverlaps
       notes.push(`${b0.title}：${old} → ${b0.start}–${b0.end}`);
     } else if (name === 'add_task') {
       const title = str(x.title).trim(), m = /^(\d{4}-\d{2}-\d{2})[ T](\d{1,2}):(\d{2})/.exec(str(x.due));
@@ -1091,7 +1208,10 @@ async function sendChat(text) {
     ({ notes, proposal } = runTools(r.calls, now));
     reply = r.text || (proposal ? `给你排了个方案，勾掉不想要的，再点“排进时间轴”。${proposal.note ? proposal.note : ''}` : notes.length ? '好，已经记下了。' : '嗯。');
     lastUndo = notes.length ? { snap, at: chat.length } : null;
-    if (notes.length || r.calls.some(c => c.name === 'remember')) commit('tasks');
+    if (notes.length || r.calls.some(c => c.name === 'remember')) {
+      commit('tasks');
+      lastMoves.forEach(m => notes.push(m.to ? `为了不冲突，${m.title} 从 ${m.from} 顺延到 ${m.to}` : `${m.title} 今天放不下了，可以让我换个时间`));
+    }
   } catch (e) { reply = '这次没连上：' + (e && e.message ? e.message : e); }
   chat.push({ role: 'assistant', text: reply, notes, undo: notes.length > 0, proposal, t: Date.now() });
   chatBusy = false; saveChat(); renderChat();
@@ -1134,7 +1254,7 @@ function renderChat(typing) {
   }).join('');
   if (typing) mk(box, 'div', 'msg bot typing').innerHTML = '<p>正在想…</p>';
   $$('[data-pm]', box).forEach(c => c.addEventListener('change', () => { const pr = chat[+c.dataset.pm].proposal; pr.picked[+c.dataset.k] = c.checked; saveChat(); }));
-  $$('[data-apply]', box).forEach(b => b.addEventListener('click', () => applyProposal(+b.dataset.apply)));
+  $$('[data-apply]', box).forEach(b => b.addEventListener('click', () => { spark(b, $('.nav a[data-tab="today"]')); applyProposal(+b.dataset.apply); }));
   $$('[data-again]', box).forEach(b => b.addEventListener('click', () => sendChat('换一个方案')));
   const u = $('.undo', box); if (u) u.addEventListener('click', undoLast);
   $('#aiMemLink').textContent = `记忆 ${alive(S.memory).length} 条`;
@@ -1182,23 +1302,27 @@ function waveLoop() {
   voice.raf = requestAnimationFrame(waveLoop);
 }
 function heard(text) {
-  if (!voice || !text) return;
+  if (!voice || !text || typeof text !== 'string') return;
   voice.text = text; voice.pulse = 1;
   $('#vText').textContent = text; $('#vText').classList.remove('hint');
   clearTimeout(voice.quiet);
   voice.quiet = setTimeout(() => stopVoice(true), 2500); // a pause means you're done
 }
-async function stopVoice(keep) {
+function stopVoice(keep) {
   const v = voice;
   if (!v) return;
   voice = null;
   clearTimeout(v.quiet); clearTimeout(v.cap); cancelAnimationFrame(v.raf);
-  try { if (v.engine === 'native') { const SR = plugin('SpeechRecognition'); if (SR) await SR.stop(); } else if (v.rec) v.rec.abort ? v.rec.abort() : v.rec.stop(); } catch (e) { /* already stopped */ }
-  try { if (v.handle && v.handle.remove) v.handle.remove(); } catch (e) { /* ignore */ }
-  try { if (v.stream) v.stream.getTracks().forEach(tr => tr.stop()); if (v.ctx) v.ctx.close(); } catch (e) { /* ignore */ }
   $('#voice').hidden = true; setMic(false);
-  if (keep && v.text) { insertText(v.text); $('#chatInput').focus(); }
+  if (keep && v.text) insertText(v.text);
   else if (keep) toast('没听到内容，可以再点一次麦克风');
+  // let go of the engine without waiting: a stuck native call can no longer freeze the screen
+  const quiet = p => { try { Promise.resolve(p).catch(() => {}); } catch (e) { /* ignore */ } };
+  try {
+    if (v.engine === 'native') { const SR = plugin('SpeechRecognition'); if (SR) { quiet(SR.stop()); if (SR.removeAllListeners) quiet(SR.removeAllListeners()); } }
+    else if (v.rec) { v.rec.onend = v.rec.onerror = v.rec.onresult = null; if (v.rec.abort) v.rec.abort(); else v.rec.stop(); }
+  } catch (e) { /* already stopped */ }
+  try { if (v.stream) v.stream.getTracks().forEach(tr => tr.stop()); if (v.ctx) quiet(v.ctx.close()); } catch (e) { /* ignore */ }
 }
 async function micLevel(v) {
   try {
@@ -1224,9 +1348,10 @@ async function voiceInput() {
   v.cap = setTimeout(() => stopVoice(true), 30000);
   if (engine === 'native') {
     try {
+      try { SR.stop().catch(() => {}); if (SR.removeAllListeners) SR.removeAllListeners().catch(() => {}); } catch (e) { /* a leftover session */ }
       const perm = await SR.requestPermissions();
       if (perm && perm.speechRecognition && perm.speechRecognition !== 'granted') { stopVoice(false); toast('没有麦克风权限，到系统设置里给学生工作台打开'); return; }
-      v.handle = await SR.addListener('partialResults', d => heard(arr(d && d.matches)[0]));
+      v.handle = await SR.addListener('partialResults', d => { if (voice === v) heard(arr(d && d.matches)[0]); });
       SR.start({ language: 'zh-CN', maxResults: 1, partialResults: true, popup: false })
         .then(r => { const t = r && arr(r.matches)[0]; if (t) heard(t); if (voice === v && !v.text) setTimeout(() => { if (voice === v && !v.text) stopVoice(true); }, 6000); })
         .catch(() => { if (voice === v) stopVoice(true); });
@@ -1311,7 +1436,7 @@ function renderRoutinesToday(now) {
   const list = alive(S.routines).filter(r => r.days.includes(isoDay(now)));
   box.hidden = !list.length;
   box.innerHTML = list.map(r => `<button type="button" class="rchip${r.done[key] ? ' on' : ''}" data-r="${r.id}"><i></i><span>${esc(r.title)}</span><small>${r.done[key] ? '连续 ' + streak(r, now) + ' 天' : r.minutes + ' 分钟'}</small></button>`).join('');
-  $$('[data-r]', box).forEach(b => b.addEventListener('click', () => toggleRoutine(b.dataset.r)));
+  $$('[data-r]', box).forEach(b => b.addEventListener('click', () => { if (!b.classList.contains('on')) spark(b, $('#race:not([hidden]) #raceChip')); toggleRoutine(b.dataset.r); }));
 }
 
 /* ---------- render: today ---------- */
@@ -1352,7 +1477,7 @@ function renderToday() {
   r.innerHTML = '';
   const H = (end - start) * PX_DAY;
   r.style.height = H + 'px';
-  r.classList.toggle('has-dues', dues.length > 0);
+  r.classList.remove('has-dues');
   mk(r, 'div', 'axis');
   for (let m = start; m <= end; m += 30) {
     const y = (m - start) * PX_DAY, hour = m % 60 === 0;
@@ -1377,19 +1502,22 @@ function renderToday() {
     g.textContent = '空档 ' + durText(b - a);
   });
   const box = mk(r, 'div', 'evbox'); // overlapping classes share the lane side by side
-  layoutLanes(classes.concat(blocksToday)).forEach(({ c, a, b, lane, lanes }) => {
+  // finished blocks are history: drawn full width underneath, so they never squeeze what's still to do
+  const doneToday = blocksToday.filter(x => x.status === 'done').map(x => ({ c: x, a: toMin(x.start), b: toMin(x.end), lane: 0, lanes: 1 }));
+  doneToday.concat(layoutLanes(classes.concat(blocksToday.filter(x => x.status !== 'done')))).forEach(({ c, a, b, lane, lanes }) => {
     if (c.taskId !== undefined) { // a planned study block
       const el = mk(box, 'button', 'ev pl' + (c.kind === 'event' ? ' event' : '') + (c.status === 'done' ? ' done' : c.status === 'missed' ? ' missed' : '') + (c.pinned && c.kind !== 'event' ? ' pinned' : ''));
       el.type = 'button';
       el.style.top = ((a - start) * PX_DAY) + 'px';
-      el.style.height = Math.max(24, (b - a) * PX_DAY) + 'px';
+      el.style.height = Math.max(30, (b - a) * PX_DAY - 2) + 'px';
       el.style.left = (lane * 100 / lanes).toFixed(3) + '%';
       el.style.width = `calc(${(100 / lanes).toFixed(3)}% - ${lanes > 1 ? 2 : 0}px)`;
-      const short = (b - a) * PX_DAY < 40; // one line for short blocks so nothing gets clipped
+      const short = (b - a) * PX_DAY < 44; // one line for short blocks so nothing gets clipped
       el.classList.toggle('short', short);
       el.innerHTML = short
         ? `<span class="t">${c.status === 'done' ? '✓ ' : ''}<span class="num">${esc(c.start)}</span> ${esc(c.title)}</span>`
         : `<span class="t">${c.status === 'done' ? '✓ ' : ''}${esc(c.title)}</span><span class="m"><span class="num">${esc(c.start)}–${esc(c.end)}</span>${c.source === 'ai' ? '　AI' : ''}</span>`;
+      el.dataset.id = c.id;
       el.addEventListener('click', () => openBlock(c.id));
       if (c.status === 'planned') enableDrag(el, c, start);
       return;
@@ -1416,7 +1544,7 @@ function renderToday() {
     const d = mk(r, 'button', 'due');
     d.type = 'button';
     d.style.top = y + 'px';
-    d.innerHTML = `<i aria-hidden="true"></i><span><span class="num">${fmtMin(x.m)}</span> ${esc(x.t.title)}</span>`;
+    d.innerHTML = `<span><i aria-hidden="true"></i><span class="num">${fmtMin(x.m)}</span> ${esc(x.t.title)} 截止</span>`;
     d.setAttribute('aria-label', `${fmtMin(x.m)} 截止：${x.t.title}`);
     d.addEventListener('click', () => openTask(x.t.id));
   });
@@ -1561,9 +1689,12 @@ function taskRow(t, now) {
     `<span class="cd">${cdText ? `<b>${esc(cdText)}</b>` : ''}${due ? `<small>${esc(dueLabel(due, now))}</small>` : '<small>无截止</small>'}</span>`;
   li.querySelector('.check').addEventListener('click', e => {
     if (done || matchMedia('(prefers-reduced-motion: reduce)').matches) { toggleDone(t.id); return; }
-    e.currentTarget.setAttribute('aria-pressed', 'true');
+    const btn = e.currentTarget;
+    btn.setAttribute('aria-pressed', 'true');
     mk(li, 'span', 'ko').textContent = 'KO';
-    setTimeout(() => toggleDone(t.id), 650);
+    setTimeout(() => shake(li, 1.4), 330);
+    setTimeout(() => spark(btn, $('#race:not([hidden]) #raceChip') || $('.nav a[data-tab="today"]')), 380);
+    setTimeout(() => toggleDone(t.id), 720);
   });
   li.querySelector('.tbody').addEventListener('click', () => openTask(t.id));
   return li;
@@ -2079,6 +2210,7 @@ async function loadNativePlugins() {
   });
   if (!(await load('vendor/cap/core.js'))) return;
   for (const f of ['local-notifications', 'filesystem', 'share', 'speech']) await load(`vendor/cap/${f}.js`);
+  if (cap.registerPlugin && !cap.Plugins.WorkbenchSettings) { try { cap.registerPlugin('WorkbenchSettings'); } catch (e) { /* not in this build */ } }
 }
 
 /* ---------- reminders (Android app only) ---------- */
@@ -2092,7 +2224,7 @@ let channelReady = false;
 async function ensureChannel(LN) {
   if (channelReady || typeof LN.createChannel !== 'function') return;
   try {
-    await LN.createChannel({ id: 'deadline2', name: '截止提醒（悬浮）', description: '作业截止前弹出的悬浮提醒', importance: 5, visibility: 1, vibration: true, lights: true, lightColor: '#F2552C' });
+    await LN.createChannel({ id: 'deadline3', name: '截止提醒（悬浮）', description: '作业截止前弹出的悬浮提醒', importance: 5, visibility: 1, vibration: true, lights: true, lightColor: '#F2552C' });
     if (typeof LN.registerActionTypes === 'function') await LN.registerActionTypes({ types: [{ id: 'DEADLINE', actions: [{ id: 'start', title: '现在开始' }, { id: 'snooze', title: '10 分钟后再提醒' }] }] });
     if (typeof LN.addListener === 'function') LN.addListener('localNotificationActionPerformed', ev => onNotifAction(ev));
     channelReady = true;
@@ -2119,7 +2251,7 @@ async function syncNotifications(ask) {
       if (!d || !t.remind) return;
       const at = d.getTime() - t.remind * 60000;
       if (at <= now.getTime()) return;
-      list.push({ id: nid(t.id), channelId: 'deadline2', actionTypeId: 'DEADLINE', extra: { taskId: t.id }, title: '⏰ 截止提醒：' + t.title, body: `${dueLabel(d, now)} 截止${t.course ? '，' + t.course : ''}`, schedule: { at: new Date(at), allowWhileIdle: true } });
+      list.push({ id: nid(t.id), channelId: 'deadline3', actionTypeId: 'DEADLINE', extra: { taskId: t.id }, title: '⏰ 截止提醒：' + t.title, body: `${dueLabel(d, now)} 截止${t.course ? '，' + t.course : ''}`, schedule: { at: new Date(at), allowWhileIdle: true } });
     });
     list.sort((a, b) => a.schedule.at - b.schedule.at);
     if (list.length) await LN.schedule({ notifications: list.slice(0, 60) });
@@ -2131,38 +2263,42 @@ function onNotifAction(ev) {
   if (!t) return;
   const LN = plugin('LocalNotifications');
   if (ev.actionId === 'snooze' && LN) {
-    LN.schedule({ notifications: [{ id: nid(t.id + 'snooze'), channelId: 'deadline2', actionTypeId: 'DEADLINE', extra: { taskId: t.id }, title: '⏰ 再提醒一次：' + t.title, body: `${dueLabel(parseDue(t.due), new Date())} 截止`, schedule: { at: new Date(Date.now() + 600000), allowWhileIdle: true } }] }).catch(() => {});
+    LN.schedule({ notifications: [{ id: nid(t.id + 'snooze'), channelId: 'deadline3', actionTypeId: 'DEADLINE', extra: { taskId: t.id }, title: '⏰ 再提醒一次：' + t.title, body: `${dueLabel(parseDue(t.due), new Date())} 截止`, schedule: { at: new Date(Date.now() + 600000), allowWhileIdle: true } }] }).catch(() => {});
     return;
   }
   location.hash = '#today';
   const it = suggestNow(120, new Date()).find(x => x.ref === t.id) || { ref: t.id, kind: 'task', title: t.title, len: Math.min(60, remainingMin(t) || 30), date: ymd(new Date()) };
   setTimeout(() => startNow(it), 300);
 }
-// status the user can read and fix without guessing
+// reminder check-up: each thing that decides whether a reminder shows outside the app, with a button to fix it
 async function renderNotifyDiag() {
   const box = $('#mDiag');
   if (!isNative) return;
-  const LN = plugin('LocalNotifications');
-  if (!LN) { box.innerHTML = '<li class="bad">通知组件没加载上。把这一句发给 Claude。</li>'; $('#mTestNotify').disabled = true; return; }
+  const LN = plugin('LocalNotifications'), WS = plugin('WorkbenchSettings');
+  if (!LN) { box.innerHTML = '<li class="bad"><span>通知组件</span><b>没加载上，把这句发给 Claude</b></li>'; $('#mTestNotify').disabled = true; return; }
   $('#mTestNotify').disabled = false;
-  let perm = 'prompt', exact = 'na', pending = 0;
+  let st = {}, perm = 'prompt', pending = 0;
   try { perm = (await LN.checkPermissions()).display; } catch (e) { /* ignore */ }
-  // pop-up (heads-up) notifications don't need the exact-alarm permission; a few minutes late is fine
+  try { if (WS) st = await WS.status(); } catch (e) { st = {}; }
   try { pending = arr((await LN.getPending()).notifications).filter(n => n.id !== TEST_ID).length; } catch (e) { /* ignore */ }
-  const row = (label, ok, text, btn) => `<li class="${ok ? 'ok' : 'bad'}"><span>${label}</span><b>${text}</b>${btn || ''}</li>`;
+  const row = (label, ok, text, fix, fixText) => `<li class="${ok ? 'ok' : 'bad'}"><span>${label}</span><b>${text}</b>${fix ? `<button type="button" class="btn chip" data-fix="${fix}">${fixText || '去打开'}</button>` : ''}</li>`;
   box.innerHTML =
-    row('通知权限', perm === 'granted', perm === 'granted' ? '已允许' : '未允许', perm === 'granted' ? '' : '<button type="button" class="btn chip" data-fix="perm">去允许</button>') +
-    (exact === 'na' ? '' : row('准时提醒', exact === 'granted', exact === 'granted' ? '已允许' : '未允许，可能会晚到', exact === 'granted' ? '' : '<button type="button" class="btn chip" data-fix="exact">去开启</button>')) +
+    row('通知权限', perm === 'granted', perm === 'granted' ? '已允许' : '未允许', perm === 'granted' ? '' : 'perm', '去允许') +
+    (WS ? row('悬浮横幅', true, '在通道设置里打开“横幅/悬浮”', 'channel', '去设置') : '') +
+    (WS ? row('后台运行', !!st.ignoringBattery, st.ignoringBattery ? '已允许' : '被省电限制，关掉应用后会收不到', st.ignoringBattery ? '' : 'battery', '去允许') : '') +
+    (WS ? row('自启动', true, '国产系统要单独打开', 'autostart', '去设置') : '') +
+    (WS && st.exactAlarms === false ? row('准时提醒', false, '未允许，可能会晚到', 'exact', '去允许') : '') +
     row('已安排', true, `${pending} 条`);
   $$('[data-fix]', box).forEach(b => b.addEventListener('click', async () => {
     try {
-      if (b.dataset.fix === 'perm') {
-        const r = await LN.requestPermissions();
-        if (r.display !== 'granted') toast('系统没弹窗的话，到 设置 → 应用 → 学生工作台 → 通知 里打开');
-        else scheduleNotifSync(false);
-      } else await LN.changeExactNotificationSetting();
+      const f = b.dataset.fix;
+      if (f === 'perm') { const r = await LN.requestPermissions(); if (r.display !== 'granted' && WS) await WS.openNotifications(); else scheduleNotifSync(false); }
+      else if (f === 'channel' && WS) { await ensureChannel(LN); await WS.openChannel({ channel: 'deadline3' }); }
+      else if (f === 'battery' && WS) await WS.requestIgnoreBattery();
+      else if (f === 'autostart' && WS) await WS.openAutoStart();
+      else if (f === 'exact' && WS) await WS.openExactAlarms();
     } catch (e) { console.warn('fix', e); }
-    setTimeout(renderNotifyDiag, 800);
+    setTimeout(renderNotifyDiag, 1200);
   }));
 }
 async function testNotify() {
@@ -2173,7 +2309,7 @@ async function testNotify() {
     if (p.display !== 'granted') p = await LN.requestPermissions();
     if (p.display !== 'granted') { toast('没有通知权限，先点“去允许”'); renderNotifyDiag(); return; }
     await ensureChannel(LN);
-    await LN.schedule({ notifications: [{ id: TEST_ID, channelId: 'deadline2', title: '测试提醒', body: '看到这条，截止提醒就能正常弹出', schedule: { at: new Date(Date.now() + 10000), allowWhileIdle: true } }] });
+    await LN.schedule({ notifications: [{ id: TEST_ID, channelId: 'deadline3', title: '测试提醒', body: '看到这条，截止提醒就能正常弹出', schedule: { at: new Date(Date.now() + 10000), allowWhileIdle: true } }] });
     toast('10 秒后看通知，可以先回到桌面');
   } catch (e) { toast('测试提醒失败：' + (e && e.message ? e.message : e)); }
 }
@@ -2191,12 +2327,15 @@ const TABS = ['today', 'week', 'ai', 'tasks', 'me'];
 let lastTab = '';
 function route() {
   const tab = TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'today';
+  const dir = lastTab ? Math.sign(TABS.indexOf(tab) - TABS.indexOf(lastTab)) : 0;
   TABS.forEach(t => $('#view-' + t).classList.toggle('on', t === tab));
+  if (lastTab !== tab) panTo($('#view-' + tab), dir);
   $$('.nav a').forEach(a => { if (a.dataset.tab === tab) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
   if (tab === 'week') viewWeek = null;
   renderAll();
   if (tab === 'me') renderNotifyDiag();
   if (tab === 'ai') renderChat();
+  requestAnimationFrame(movePill);
   if (lastTab === 'ai' && tab !== 'ai') extractMemory(true);
   lastTab = tab;
   window.scrollTo(0, 0);
@@ -2283,8 +2422,14 @@ function wire() {
   $('#mFinish').addEventListener('change', e => { if (parseYMD(e.target.value)) { S.settings.race.finish = e.target.value; touch(S.settings); commit('settings'); } });
   $('#mPath').addEventListener('change', e => setS('path', e.target.value === '考研' ? '考研' : '保研'));
   $('#chatMic').addEventListener('click', voiceInput);
-  $('#dbSave').addEventListener('click', () => { if (setBlockTime(blockId, toMin($('#dbStart').value) || 0, clampInt($('#dbLen').value, 15, 180, 60))) $('#dlgBlock').close(); });
-  $$('[data-shift]').forEach(bt => bt.addEventListener('click', () => { const m = (toMin($('#dbStart').value) || 0) + +bt.dataset.shift; $('#dbStart').value = fmtMin(Math.max(0, Math.min(1435, m))); }));
+  $('#dbSave').addEventListener('click', () => {
+    const b = S.plans.find(x => x.id === blockId), a = toMin($('#dbStart').value), e = toMin($('#dbEnd').value), title = $('#dbTitle').value.trim();
+    if (!b) return;
+    if (!title) { toast('写个名字'); return; }
+    if (a == null || e == null || e <= a) { toast('结束时间要晚于开始时间'); return; }
+    if (b.status === 'done') { renameBlock(b, title); touch(b); commit('plans'); $('#dlgBlock').close(); return; }
+    if (setBlockTime(blockId, a, e - a, title)) $('#dlgBlock').close();
+  });
   $('#drmStart').addEventListener('click', () => {
     const t = remindTask; $('#dlgRemind').close();
     if (!t) return;
@@ -2425,5 +2570,7 @@ function initServiceWorker() {
   refreshRivalLine();
   checkReminders();
   setInterval(checkReminders, 30000);
+  introTake();
+  window.addEventListener('resize', () => requestAnimationFrame(movePill));
 })();
 })();
