@@ -179,6 +179,20 @@ button:focus-visible,a:focus-visible,summary:focus-visible,input:focus-visible{o
 .mic.on{background:var(--orange);border-color:var(--orange);color:#fff;animation:pulse 1.2s ease-in-out infinite}
 @keyframes pulse{50%{box-shadow:0 0 0 8px color-mix(in srgb,var(--orange) 25%,transparent)}}
 
+/* deadlines above the timeline; blocks never cover each other */
+.ev{z-index:2}
+.ev.nudged{box-shadow:0 -2px 0 var(--card)}
+.duechips{display:flex;gap:6px;align-items:center;overflow-x:auto;margin:0 0 10px;padding:2px 0;font-size:12.5px}
+.duechips>span{flex:none;font-weight:800;color:var(--ink-2)}
+.dchip{flex:none;display:flex;align-items:center;gap:5px;padding:4px 10px;border-radius:999px;border:1.5px solid var(--ink);background:var(--card);color:var(--ink);font:inherit;font-size:12.5px;font-weight:700;cursor:pointer}
+.dchip i{width:11px;height:11px;border-radius:2px;background:repeating-conic-gradient(var(--ink) 0 25%,var(--card) 0 50%) 0 0/5.5px 5.5px}
+/* bottom bar: the pill is placed by index, so it can't drift */
+.nav .pill{left:6px;top:6px;bottom:6px;height:auto!important;width:calc((100% - 12px - (var(--n,5) - 1) * 4px) / var(--n,5))!important;transform:translateX(calc(var(--i,0) * (100% + 4px)))!important}
+#view-ai.on{display:flex;flex-direction:column}
+#view-ai .chat{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding-right:2px}
+#view-ai .composer{position:static;background:none;padding-bottom:0}
+.diag li.tip{display:block;background:none;padding:2px 2px 0;font-size:12.5px;color:var(--ink-3)}
+
 /* voice sheet */
 .voice{position:fixed;z-index:40;left:12px;right:12px;bottom:calc(84px + env(safe-area-inset-bottom,0px));padding:18px 16px 14px;border-radius:24px;background:linear-gradient(160deg,#241042,#120A22);color:#F4EEFF;box-shadow:0 16px 40px rgba(20,14,31,.45);display:grid;gap:12px;justify-items:center}
 .vwave{display:flex;align-items:center;justify-content:center;gap:6px;height:64px}
@@ -260,8 +274,8 @@ input:focus,select:focus{outline:none;border-color:var(--purple)}
 .ev.past{opacity:.42}
 .ev.live{box-shadow:0 0 0 2px var(--cc)}
 .gap{display:flex;align-items:center;padding:0 12px;border:1.5px dashed var(--line);border-radius:12px;font-size:12.5px;color:var(--ink-3)}
-.due{position:absolute;z-index:6;left:56px;right:0;transform:translateY(-50%);display:flex;align-items:center;justify-content:flex-end;gap:6px;height:22px;padding:0;border:0;border-top:1.5px dashed var(--ink);background:transparent;color:var(--ink);font:inherit;font-size:12px;font-weight:800;cursor:pointer;overflow:visible}
-.due span{margin-top:-1.5px;padding:2px 8px 2px 4px;border-radius:9px;background:var(--card);box-shadow:0 0 0 1.5px var(--ink) inset;white-space:nowrap;display:flex;align-items:center;gap:4px}
+.due{position:absolute;z-index:1;left:30px;right:0;transform:translateY(-50%);display:flex;align-items:center;justify-content:flex-start;gap:6px;height:22px;padding:0;border:0;border-top:1.5px dashed var(--ink);background:transparent;color:var(--ink);font:inherit;font-size:12px;font-weight:800;cursor:pointer;overflow:visible}
+.due span{margin-top:-1.5px;padding:2px;border-radius:5px;background:var(--card);display:flex}
 .due i{flex:none;width:14px;height:14px;border-radius:3px;background:repeating-conic-gradient(var(--ink) 0 25%,var(--card) 0 50%) 0 0/8px 8px}
 .due span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .nowline{position:absolute;z-index:3;left:30px;right:0;height:0;border-top:2px solid var(--orange);margin-top:-1px;pointer-events:none;transform-origin:left center}
@@ -411,6 +425,7 @@ dialog::backdrop{background:rgba(20,14,31,.45)}
   .main{padding:calc(24px + env(safe-area-inset-top,0px)) 32px 40px 132px}
   .nav{top:16px;bottom:16px;left:16px;right:auto;width:84px;flex-direction:column;justify-content:flex-start;padding:10px 6px}
   .nav a{flex:0 0 auto;min-height:64px}
+  .nav .pill{left:6px;right:6px;top:10px;bottom:auto;width:auto!important;height:64px!important;transform:translateY(calc(var(--i,0) * 68px))!important}
   .hello{font-size:30px}
   .oval{width:160px}
   .today-grid{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,.9fr);column-gap:16px;align-items:start}

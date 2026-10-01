@@ -1,7 +1,7 @@
 (() => {
 'use strict';
 
-const VERSION = '0.8.__BUILD__';
+const VERSION = '0.9.__BUILD__';
 const TEST_ID = 2100000000; // outside the range nid() produces
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
@@ -231,6 +231,7 @@ async function flushSave() {
 function persist() { clearTimeout(saveTimer); saveTimer = setTimeout(flushSave, 250); }
 function commit(what) {
   if (what === 'tasks') reconcilePlans();
+  lastDeduped = dedupePlans();
   resolveOverlaps();
   persist();
   renderAll();
@@ -375,7 +376,8 @@ function spark(fromEl, toEl) {
     { transform: `translate(calc(-50% + ${dx}px),calc(-50% + ${dy}px)) scale(.5)`, opacity: .9 }
   ], { duration: 720, easing: EASE }).onfinish = () => {
     dot.remove();
-    toEl.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.22)' }, { transform: 'scale(1)' }], { duration: 380, easing: SPRING });
+    const bump = toEl.closest('.nav') ? ($('svg', toEl) || toEl) : toEl; // in the bar, only the icon bumps, so the bar never shifts
+    bump.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.22)' }, { transform: 'scale(1)' }], { duration: 380, easing: SPRING });
   };
 }
 // tabs sit on one strip; switching pans the camera toward the new one, overshoots a hair, then holds still
@@ -384,13 +386,10 @@ function panTo(view, dir) {
   view.animate([{ transform: `translateX(${dir * 36}px)`, opacity: 0 }, { transform: `translateX(${-dir * 4}px)`, opacity: 1, offset: .72 }, { transform: 'none', opacity: 1 }], { duration: 440, easing: EASE });
 }
 function movePill() {
-  const nav = $('.nav'), cur = $('.nav a[aria-current="page"]');
-  let pill = $('.nav .pill');
-  if (!pill) pill = mk(nav, 'i', 'pill');
-  if (!cur) return;
-  const n = nav.getBoundingClientRect(), r = cur.getBoundingClientRect();
-  pill.style.width = r.width + 'px'; pill.style.height = r.height + 'px';
-  pill.style.transform = `translate(${r.left - n.left - nav.clientLeft}px,${r.top - n.top - nav.clientTop}px)`;
+  const nav = $('.nav'), links = $$('.nav a'), i = links.findIndex(a => a.getAttribute('aria-current') === 'page');
+  if (!$('.nav .pill')) mk(nav, 'i', 'pill');
+  nav.style.setProperty('--n', links.length);
+  nav.style.setProperty('--i', Math.max(0, i));
 }
 // planned blocks fly from the rows you picked to their places on the timeline
 function flyInto(rects, ids) {
@@ -677,23 +676,45 @@ function localPlan(now, exclude) {
   const fromMin = ceil5(now);
   return { blocks: fillSlots(freeSlots(now, fromMin, keptBlocks(ymd(now), fromMin, exclude)), planItems(now, false, exclude), now), dropped: [], note: '' };
 }
-// every block the AI proposes is fitted here: matched to your work by id or title, slid into free time if it clashes
+// titles compared by meaning: "材力作业：第1–4题" and "材力作业 第3章" are the same piece of work
+const normTitle = t => String(t || '').toLowerCase().replace(/[（(][^）)]*[）)]/g, '').replace(/[：:].*$/, '').replace(/第\s*\d+\s*[段章节题]/g, '').replace(/[\s·、，,。.!！?？\-—_~～]/g, '');
+function similar(a, b) {
+  const bi = t => { const x = normTitle(t), out = new Set(); for (let i = 0; i < x.length - 1; i++) out.add(x.slice(i, i + 2)); if (x.length === 1) out.add(x); return out; };
+  const A = bi(a), B = bi(b);
+  if (!A.size || !B.size) return 0;
+  let n = 0; A.forEach(x => { if (B.has(x)) n++; });
+  return n / Math.min(A.size, B.size);
+}
+// every block the AI proposes is fitted here: matched to your work by id or meaning, slid into free time if it clashes
 function matchItem(items, x) {
-  const ref = str(x.ref || x.task_id || x.taskId), title = str(x.title).trim();
+  const ref = str(x.ref || x.task_id || x.taskId || x.id), title = str(x.title).trim();
   if (items.has(ref)) return items.get(ref);
   const all = Array.from(items.values());
-  return all.find(it => it.title === ref || it.title === title) || all.find(it => title && (title.includes(it.title) || it.title.includes(title.replace(/[（(].*$/, '')))) || null;
+  const exact = all.find(it => it.title === ref || it.title === title);
+  if (exact) return exact;
+  let best = null, score = 0;
+  all.forEach(it => { const v = Math.max(similar(it.title, title), similar(it.title, ref)); if (v > score) { score = v; best = it; } });
+  return score >= 0.6 ? best : null;
 }
 function validateBlocks(raw, now, exclude) {
   const date = ymd(now), fromMin = ceil5(now), latest = S.settings.plan.latest;
   const fixed = freeSlots(now, 0, keptBlocks(date, fromMin, exclude));
-  const items = new Map(planItems(now, false, exclude).map(it => [it.ref, it])), ok = [], dropped = [];
+  const items = new Map(planItems(now, true).map(it => [it.ref, it])), ok = [], dropped = [], nowMin = nowMinOf(now);
+  const ahead = new Map(), planned = plansOn(date).filter(b => b.status === 'planned' && toMin(b.end) > nowMin && !(exclude && exclude.has(b.id)));
+  planned.forEach(b => ahead.set(b.taskId, (ahead.get(b.taskId) || 0) + toMin(b.end) - Math.max(toMin(b.start), nowMin)));
   const free = (a, b) => fixed.some(([sa, sb]) => a >= sa && b <= sb) && !ok.some(o => a < toMin(o.end) && b > toMin(o.start));
   arr(raw).forEach(x => {
     if (!x || typeof x !== 'object') return;
     const it = matchItem(items, x), title = str(x.title).trim() || (it ? it.title : '');
     let a = toMin(str(x.start)), b = toMin(str(x.end));
     if (!title) return;
+    if (it) {
+      const left = it.need - (ahead.get(it.ref) || 0) - ok.filter(o => o.taskId === it.ref).reduce((m, o) => m + toMin(o.end) - toMin(o.start), 0);
+      if (left < (it.kind === 'routine' ? 1 : 10)) { dropped.push({ title, start: str(x.start), end: str(x.end), why: '已经排上了，不重复安排' }); return; }
+      if (a != null && b != null && b - a > left + 10) b = a + left;
+    } else if (planned.concat(ok.map(o => ({ title: o.title }))).some(o => similar(o.title, title) >= 0.7)) {
+      dropped.push({ title, start: str(x.start), end: str(x.end), why: '和已有安排重复' }); return;
+    }
     const len = a != null && b != null && b > a ? Math.min(b - a, 180) : it ? Math.min(it.need, S.settings.plan.maxBlock) : 30;
     let s0 = Math.max(a == null ? fromMin : a, fromMin), placed = null;
     for (let t = s0; t + len <= latest; t += 5) { if (free(t, t + len)) { placed = t; break; } }
@@ -884,6 +905,38 @@ function acceptPlan() {
   requestAnimationFrame(() => flyInto(rects, ids));
   toast(`已排进时间轴：${picked.length} 块，长按色块可以拖动调整`);
 }
+// repeats get cleaned up: more time than a to-do needs, the same free block twice, or the same appointment twice
+function dedupePlans() {
+  const now = new Date(), today = ymd(now), nowMin = nowMinOf(now), t = Date.now();
+  let removed = 0;
+  const drop = b => { b.deletedAt = t; b.updatedAt = t; removed++; };
+  Array.from(new Set(alive(S.plans).filter(b => b.date >= today && b.status === 'planned').map(b => b.date))).forEach(date => {
+    const day = date === today ? now : parseYMD(date), live = plansOn(date).filter(b => b.status === 'planned');
+    const groups = new Map();
+    live.filter(b => b.kind === 'task' || b.kind === 'routine').forEach(b => { if (!groups.has(b.taskId)) groups.set(b.taskId, []); groups.get(b.taskId).push(b); });
+    groups.forEach((list, id) => {
+      const task = S.tasks.find(x => x.id === id && !x.deletedAt), r = S.routines.find(x => x.id === id && !x.deletedAt);
+      const need = task ? remainingMin(task) : r ? routineNeed(r, day) : 0;
+      let sum = 0;
+      list.sort((x, y) => toMin(x.start) - toMin(y.start)).forEach(b => {
+        const len = date === today ? toMin(b.end) - Math.max(toMin(b.start), nowMin) : blockMin(b);
+        if (sum + len > need + 10 && !(date === today && toMin(b.start) < nowMin)) drop(b); else sum += len;
+      });
+    });
+    const frees = live.filter(b => b.kind === 'free').sort((x, y) => toMin(x.start) - toMin(y.start)), keep = [];
+    frees.forEach(b => { if (keep.some(k => similar(k.title, b.title) >= 0.7)) drop(b); else keep.push(b); });
+    const events = live.filter(b => b.kind === 'event').sort((x, y) => y.updatedAt - x.updatedAt), kept = [];
+    events.forEach(b => {
+      if (kept.some(k => similar(k.title, b.title) >= 0.8)) {
+        drop(b);
+        const tk = S.tasks.find(x => x.id === b.taskId && !x.deletedAt && x.status !== 'done');
+        if (tk && !alive(S.plans).some(o => o.taskId === tk.id && !o.deletedAt)) { tk.deletedAt = t; tk.updatedAt = t; }
+      } else kept.push(b);
+    });
+  });
+  return removed;
+}
+let lastDeduped = 0;
 // who gives way: classes and appointments never move; among blocks you placed, the most recent edit wins;
 // everything else slides to the next free time. Finished blocks are history and never get in the way.
 let lastMoves = [];
@@ -1026,6 +1079,23 @@ function setBlockTime(id, start, len, title) {
   toast(`${b.title}：${b.start}–${b.end}` + (shifted.length ? `，${shifted.map(m => m.to ? `${m.title}顺延到 ${m.to}` : `${m.title}今天放不下了`).join('，')}` : ''));
   return true;
 }
+// short blocks get a minimum height; when that would make two blocks in the same column touch, the later one
+// steps down a little, and the timeline grows to fit. Every block shows its real time, so nothing is lost.
+function declutter(box) {
+  const items = $$('.ev', box).filter(el => !el.classList.contains('done')).map(el => ({ el, top: parseFloat(el.style.top), h: el.offsetHeight, col: el.style.left + '|' + el.style.width }));
+  const cols = new Map();
+  items.forEach(it => { if (!cols.has(it.col)) cols.set(it.col, []); cols.get(it.col).push(it); });
+  let bottom = 0;
+  cols.forEach(list => {
+    list.sort((x, y) => x.top - y.top);
+    let edge = -Infinity;
+    list.forEach(it => {
+      if (it.top < edge + 3) { it.top = edge + 3; it.el.style.top = it.top + 'px'; it.el.classList.add('nudged'); }
+      edge = it.top + it.h; bottom = Math.max(bottom, edge);
+    });
+  });
+  if (bottom > box.offsetHeight) box.style.minHeight = (bottom + 8) + 'px';
+}
 // renaming a block that shows its to-do's name renames the to-do too, so both lists agree
 function renameBlock(b, title) {
   title = title.trim().slice(0, 40);
@@ -1120,12 +1190,13 @@ const CHAT_TOOLS = [
   fnTool('add_task', '用户提到一项新的作业、考试或截止事项时添加', { title: { type: 'string' }, course: { type: 'string' }, due: { type: 'string', description: 'YYYY-MM-DD HH:MM' }, estimate: { type: 'integer', description: '预计分钟' }, priority: { type: 'string', enum: ['high', 'mid', 'low'] } }, ['title']),
   fnTool('add_routine', '用户想每天或每周固定做某件事时添加', { title: { type: 'string' }, days: { type: 'array', items: { type: 'integer' }, description: '1=周一 … 7=周日' }, minutes: { type: 'integer' }, window: { type: 'string', enum: ['morning', 'noon', 'afternoon', 'evening', 'any'] } }, ['title']),
   fnTool('mark_done', '用户说某项作业或每日事项做完了', { ref: { type: 'string', description: 'id' }, title: { type: 'string' } }),
-  fnTool('remember', '用户透露了长期有用的习惯、偏好、时间规律或个人情况时记下来，一次性的事不要记', { text: { type: 'string' } }, ['text'])
+  fnTool('remember', '只在用户明确让你记住，或者亲口说出固定的作息规律、长期偏好、长期目标时调用；一次性的安排、情绪、闲聊都不要记', { text: { type: 'string', description: '8 到 30 字的事实，能直接用来排计划' } }, ['text'])
 ];
 const CHAT_PROMPT = () => [
+  `现在是 ${(() => { const d = new Date(); return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 周${WD[isoDay(d) - 1]} ${fmtMin(nowMinOf(d))}`; })()}（用户手机上的时间，本学期第 ${teachWeek(new Date()) || '?'} 周）。用户说“今晚”“明天”“下周三”时按这个时间换算成具体日期。`,
   `你是「小助手」，住在一名大学生的学习工作台 App 里。你可以和用户自由地聊任何话题：学习、课程问题、生活、情绪都行。像一个靠谱、有点幽默的学长那样说话，自然、简短，不打官腔。`,
   `你同时是用户的规划助手，需要时调用工具：用户说某个时间段有事，一定调用 add_event，它会同时写进时间轴和待办；排安排用 propose_plan（只是方案，用户勾选确认后才排进时间轴）；提到新作业用 add_task；想固定每天做的事用 add_routine；说做完了用 mark_done；要改已排好的某项时间用 move_block；透露长期习惯或偏好时用 remember。`,
-  `排安排时：plan_today 里状态为“已定”的时间和日程都不能占用，只用 free_slots；只排还没排上的事，先排过期和快截止的，每日事项尽量放在它习惯的时段，ref 填 id。回复里不要自己列时间表，方案卡片会显示最终时间。`,
+  `排安排时：plan_today 里状态为“已定”的时间和日程都不能占用，只用 free_slots；已经在 plan_today 里的事不要再排一遍；只排还没排上的事，先排过期和快截止的，每日事项尽量放在它习惯的时段，ref 填 id。回复里不要自己列时间表，方案卡片会显示最终时间。`,
   `用户：称呼 ${S.settings.nick || '同学'}，大二，目标是${S.settings.path}${S.settings.goal || ''}。系统消息里有 App 的当前情况和你记住的事，相关时再用。`
 ].join('\n');
 function daysOf(v) { const d = arr(v).map(Number).filter(x => x >= 1 && x <= 7); return d.length ? d : [1, 2, 3, 4, 5, 6, 7]; }
@@ -1138,6 +1209,16 @@ function runTools(calls, now) {
       const a = toMin(str(x.start)), b = toMin(str(x.end)), day = parseYMD(str(x.date)) ? str(x.date) : date;
       if (a == null || b == null || b <= a || day < date) return;
       const title = (str(x.title) || str(x.note) || '有事').trim().slice(0, 30);
+      const same = alive(S.plans).find(b => b.kind === 'event' && b.date === day && b.status === 'planned' && similar(b.title, title) >= 0.8);
+      if (same) {
+        if (same.start === fmtMin(a) && same.end === fmtMin(b)) { notes.push(`${title} 已经在日程里了`); return; }
+        const old = `${same.start}–${same.end}`;
+        same.start = fmtMin(a); same.end = fmtMin(b); touch(same);
+        const tk = S.tasks.find(k => k.id === same.taskId && !k.deletedAt);
+        if (tk) { tk.due = `${day}T${fmtMin(a)}`; tk.estimate = Math.max(5, b - a); touch(tk); }
+        notes.push(`把日程「${same.title}」从 ${old} 改到 ${same.start}–${same.end}`);
+        return;
+      }
       const task = normTask({ id: newId(), title, type: '其他', due: `${day}T${fmtMin(a)}`, estimate: b - a, remind: S.settings.notifyLead, status: 'todo', createdAt: t, updatedAt: t });
       S.tasks.push(task);
       S.plans.push(normPlan({ id: newId(), date: day, start: fmtMin(a), end: fmtMin(b), taskId: task.id, kind: 'event', title, reason: '日程', source: 'ai', status: 'planned', pinned: true, updatedAt: t }));
@@ -1175,17 +1256,21 @@ function runTools(calls, now) {
     } else if (name === 'propose_plan') {
       const v = validateBlocks(x.blocks, now);
       proposal = { blocks: v.ok, picked: v.ok.map(() => true), dropped: v.dropped.map(d => `${d.title}：${d.why}`), note: str(x.note).slice(0, 60), applied: false };
+      if (!v.ok.length && v.dropped.length) notes.push(v.dropped.every(d => /已经排上|重复/.test(d.why)) ? '方案里的事都已经排上了，没有重复安排' : '方案里的时间都放不下：' + v.dropped.map(d => `${d.title}（${d.why}）`).join('；'));
     }
   });
   reconcilePlans();
   return { notes, proposal };
 }
+// new memory that says the same thing as an old one replaces it instead of piling up
 function addMemory(text, source) {
-  text = str(text).trim().slice(0, 80);
-  if (text.length < 4 || alive(S.memory).some(m => m.text === text || m.text.includes(text) || text.includes(m.text))) return false;
+  text = str(text).trim().replace(/^[-•\d.、\s]+/, '').slice(0, 60);
+  if (text.length < 6) return false;
+  const live = alive(S.memory), same = live.find(m => similar(m.text, text) >= 0.6);
+  if (same) { if (same.text === text) return false; same.text = text; touch(same); return true; }
   S.memory.push(normMemory({ id: newId(), text, source, createdAt: Date.now(), updatedAt: Date.now() }));
-  const live = alive(S.memory);
-  if (live.length > 40) { live[0].deletedAt = Date.now(); touch(live[0]); }
+  const after = alive(S.memory);
+  if (after.length > 20) { after[0].deletedAt = Date.now(); touch(after[0]); }
   return true;
 }
 async function sendChat(text) {
@@ -1207,13 +1292,15 @@ async function sendChat(text) {
     const r = await callAIRaw([{ role: 'system', content: CHAT_PROMPT() }, { role: 'system', content: 'App 当前情况：' + JSON.stringify(ctx) }].concat(history, [{ role: 'user', content: text }]), { tools: CHAT_TOOLS, maxTokens: 1500, temperature: 0.7 });
     ({ notes, proposal } = runTools(r.calls, now));
     reply = r.text || (proposal ? `给你排了个方案，勾掉不想要的，再点“排进时间轴”。${proposal.note ? proposal.note : ''}` : notes.length ? '好，已经记下了。' : '嗯。');
-    lastUndo = notes.length ? { snap, at: chat.length } : null;
+    const changed = JSON.stringify(snap) !== JSON.stringify({ tasks: S.tasks, routines: S.routines, plans: S.plans, busy: S.busy, memory: S.memory });
+    lastUndo = changed ? { snap, at: chat.length } : null;
     if (notes.length || r.calls.some(c => c.name === 'remember')) {
       commit('tasks');
       lastMoves.forEach(m => notes.push(m.to ? `为了不冲突，${m.title} 从 ${m.from} 顺延到 ${m.to}` : `${m.title} 今天放不下了，可以让我换个时间`));
+      if (lastDeduped) notes.push(`清掉了 ${lastDeduped} 个重复的安排`);
     }
   } catch (e) { reply = '这次没连上：' + (e && e.message ? e.message : e); }
-  chat.push({ role: 'assistant', text: reply, notes, undo: notes.length > 0, proposal, t: Date.now() });
+  chat.push({ role: 'assistant', text: reply, notes, undo: !!lastUndo && lastUndo.at === chat.length, proposal, t: Date.now() });
   chatBusy = false; saveChat(); renderChat();
   extractMemory(false);
 }
@@ -1258,7 +1345,8 @@ function renderChat(typing) {
   $$('[data-again]', box).forEach(b => b.addEventListener('click', () => sendChat('换一个方案')));
   const u = $('.undo', box); if (u) u.addEventListener('click', undoLast);
   $('#aiMemLink').textContent = `记忆 ${alive(S.memory).length} 条`;
-  if (location.hash === '#ai') window.scrollTo(0, document.body.scrollHeight);
+  scrollChat();
+  requestAnimationFrame(scrollChat);
 }
 // memory writes itself: every few messages the assistant distills what's worth keeping
 async function extractMemory(force) {
@@ -1268,12 +1356,13 @@ async function extractMemory(force) {
   memBusy = true;
   const live = alive(S.memory), known = live.map((m, i) => `${i + 1}. ${m.text}`).join('\n') || '（还没有）';
   const convo = fresh.map(m => (m.role === 'user' ? '用户：' : '助手：') + m.text).join('\n').slice(-6000);
-  const prompt = `下面是用户和学习助手最近的对话，以及助手已经记住的关于用户的事。请提取以后规划时长期有用的信息：作息和效率规律、偏好、固定安排、目标、课程和学业情况。不要记一次性的事和寒暄，不要重复已记住的内容。\n已记住：\n${known}\n最近对话：\n${convo}\n只输出 json：{"add":["每条 10 到 40 个字"],"remove":[已记住里过时或被推翻的序号]}，没有就给空数组。`;
+  const prompt = `你在整理学习助手对用户的长期记忆，宁缺毋滥。只记三类、而且必须是用户自己在对话里说过的：\n1. 固定的作息或时间规律（例：周一晚上 7 到 9 点有社团）；\n2. 明确的学习偏好或方法（例：喜欢早上背单词，晚上九点后效率低）；\n3. 长期目标或重要背景（例：计划保研南京大学）。\n不要记：一次性的安排、某天的作业、情绪、闲聊、你的推测、已经记住的内容。\n已记住：\n${known}\n最近对话：\n${convo}\n只输出 json：{"add":["新的一条，8 到 30 字，写成能直接用来排计划的事实"],"update":[{"index":已记住里的序号,"text":"改写后的内容"}],"remove":[已记住里过时或被用户推翻的序号]}。一次最多新增 2 条，能改写已有的就用 update，没有就都给空数组。`;
   try {
     const o = parseJSONLoose(await callAI([{ role: 'user', content: prompt }], { json: true, maxTokens: 500, temperature: 0.2 }));
     if (o) {
       arr(o.remove).map(Number).forEach(n => { const m = live[n - 1]; if (m) { m.deletedAt = Date.now(); touch(m); } });
-      arr(o.add).forEach(x => addMemory(x, 'chat'));
+      arr(o.update).forEach(u => { const m = live[(+(u && u.index)) - 1], tx = str(u && u.text).trim().slice(0, 60); if (m && !m.deletedAt && tx.length >= 6) { m.text = tx; touch(m); } });
+      arr(o.add).slice(0, 2).forEach(x => addMemory(x, 'chat'));
       commit('settings');
     }
     localStorage.setItem(LS_MEMCUR, String(fresh[fresh.length - 1].t));
@@ -1478,12 +1567,18 @@ function renderToday() {
   const H = (end - start) * PX_DAY;
   r.style.height = H + 'px';
   r.classList.remove('has-dues');
+  requestAnimationFrame(() => declutter(box));
   mk(r, 'div', 'axis');
   for (let m = start; m <= end; m += 30) {
     const y = (m - start) * PX_DAY, hour = m % 60 === 0;
     mk(r, 'div', 'tick' + (hour ? ' h' : '')).style.top = y + 'px';
     if (hour) { const lb = mk(r, 'div', 'tl num'); lb.style.top = y + 'px'; lb.textContent = pad(m / 60); }
   }
+  // deadlines: a line behind the blocks plus a chip row above the timeline (no labels covering block text)
+  const chips = $('#dueChips');
+  chips.hidden = !dues.length;
+  chips.innerHTML = dues.length ? '<span>截止</span>' + dues.slice().sort((x, y) => x.m - y.m).map(x => `<button type="button" class="dchip" data-t="${x.t.id}"><i></i><b class="num">${fmtMin(x.m)}</b>${esc(x.t.title)}</button>`).join('') : '';
+  $$('[data-t]', chips).forEach(bt => bt.addEventListener('click', () => openTask(bt.dataset.t)));
   // free blocks from now on, so you can see where homework fits
   const blocksToday = plansOn(todayKey);
   let cursor = Math.max(nowMin, start);
@@ -1544,7 +1639,8 @@ function renderToday() {
     const d = mk(r, 'button', 'due');
     d.type = 'button';
     d.style.top = y + 'px';
-    d.innerHTML = `<span><i aria-hidden="true"></i><span class="num">${fmtMin(x.m)}</span> ${esc(x.t.title)} 截止</span>`;
+    d.innerHTML = '<span><i aria-hidden="true"></i></span>';
+    d.setAttribute('aria-label', `${fmtMin(x.m)} ${x.t.title} 截止`);
     d.setAttribute('aria-label', `${fmtMin(x.m)} 截止：${x.t.title}`);
     d.addEventListener('click', () => openTask(x.t.id));
   });
@@ -2287,6 +2383,7 @@ async function renderNotifyDiag() {
     (WS ? row('悬浮横幅', true, '在通道设置里打开“横幅/悬浮”', 'channel', '去设置') : '') +
     (WS ? row('后台运行', !!st.ignoringBattery, st.ignoringBattery ? '已允许' : '被省电限制，关掉应用后会收不到', st.ignoringBattery ? '' : 'battery', '去允许') : '') +
     (WS ? row('自启动', true, '国产系统要单独打开', 'autostart', '去设置') : '') +
+    (WS && /xiaomi|redmi|poco/i.test(st.brand || '') ? row('省电策略', true, '设成“无限制”', 'saver', '去设置') + '<li class="tip">小米还要：最近任务里按住学生工作台，点小锁锁定；通知设置里打开“悬浮通知”和“锁屏通知”。</li>' : '') +
     (WS && st.exactAlarms === false ? row('准时提醒', false, '未允许，可能会晚到', 'exact', '去允许') : '') +
     row('已安排', true, `${pending} 条`);
   $$('[data-fix]', box).forEach(b => b.addEventListener('click', async () => {
@@ -2296,6 +2393,7 @@ async function renderNotifyDiag() {
       else if (f === 'channel' && WS) { await ensureChannel(LN); await WS.openChannel({ channel: 'deadline3' }); }
       else if (f === 'battery' && WS) await WS.requestIgnoreBattery();
       else if (f === 'autostart' && WS) await WS.openAutoStart();
+      else if (f === 'saver' && WS) await WS.openBatterySaver();
       else if (f === 'exact' && WS) await WS.openExactAlarms();
     } catch (e) { console.warn('fix', e); }
     setTimeout(renderNotifyDiag, 1200);
@@ -2334,12 +2432,21 @@ function route() {
   if (tab === 'week') viewWeek = null;
   renderAll();
   if (tab === 'me') renderNotifyDiag();
-  if (tab === 'ai') renderChat();
+  if (tab === 'ai') { sizeChat(); renderChat(); }
   requestAnimationFrame(movePill);
   if (lastTab === 'ai' && tab !== 'ai') extractMemory(true);
   lastTab = tab;
   window.scrollTo(0, 0);
+  if (tab === 'ai') requestAnimationFrame(() => { sizeChat(); scrollChat(); });
 }
+function sizeChat() {
+  const v = $('#view-ai');
+  if (!v.classList.contains('on')) return;
+  const nav = $('.nav').getBoundingClientRect(), top = v.getBoundingClientRect().top;
+  const bottom = innerWidth >= 900 ? innerHeight - 16 : Math.min(innerHeight, nav.top) - 10;
+  v.style.height = Math.max(320, bottom - top) + 'px';
+}
+function scrollChat() { const box = $('#chatList'); if (box) box.scrollTop = box.scrollHeight; }
 
 /* ---------- wiring ---------- */
 function wire() {
@@ -2571,6 +2678,6 @@ function initServiceWorker() {
   checkReminders();
   setInterval(checkReminders, 30000);
   introTake();
-  window.addEventListener('resize', () => requestAnimationFrame(movePill));
+  window.addEventListener('resize', () => requestAnimationFrame(() => { movePill(); sizeChat(); scrollChat(); }));
 })();
 })();

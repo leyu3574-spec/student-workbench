@@ -110,6 +110,17 @@ public class WorkbenchSettingsPlugin extends Plugin {
         JSObject r = new JSObject(); r.put("opened", "app"); call.resolve(r);
     }
 
+    /** Xiaomi (MIUI / HyperOS): per-app battery saver, where "无限制" keeps scheduled reminders alive. */
+    @PluginMethod
+    public void openBatterySaver(PluginCall call) {
+        Intent i = new Intent();
+        i.setComponent(new ComponentName("com.miui.powerkeeper", "com.miui.powerkeeper.ui.HiddenAppsConfigActivity"));
+        i.putExtra("package_name", pkg());
+        i.putExtra("package_label", "学生工作台");
+        if (!start(i) && !start(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))) openApp();
+        call.resolve();
+    }
+
     @PluginMethod
     public void openAppSettings(PluginCall call) { openApp(); call.resolve(); }
 
