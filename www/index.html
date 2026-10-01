@@ -27,7 +27,7 @@
       <div class="hero-text">
         <p class="hello" id="hello">你好</p>
         <p class="hero-date" id="heroDate"></p>
-        <p class="hero-meta"><span id="heroWeek"></span><span class="goal" id="heroGoal" hidden></span></p>
+        <p class="hero-meta"><span id="heroWeek"></span><span class="goal" id="heroGoal" hidden></span><span class="goal exam" id="heroExam" hidden></span></p>
       </div>
       <a class="oval" href="#me" id="heroOval" aria-label="学期进度">
         <svg viewBox="0 0 136 80" aria-hidden="true">
@@ -59,15 +59,19 @@
     <div class="today-grid">
       <section class="card">
         <div class="ch">
-          <div><h2>今天</h2><p class="sub" id="todaySum"></p></div>
+          <div><h2 id="todayH">今天</h2><p class="sub" id="todaySum"></p></div>
           <button type="button" class="btn" id="btnQuickTask">记作业</button>
         </div>
+        <div class="seg mini" id="daySel"><button type="button" data-o="0">今天</button><button type="button" data-o="1">明天</button><button type="button" data-o="2">后天</button></div>
         <div class="rrow" id="todayRoutines" hidden></div>
+        <div class="rrow" id="todayReview" hidden></div>
         <div class="plan-bar">
           <button type="button" class="btn primary" id="btnPlan">排今天</button>
           <button type="button" class="btn" id="btnFree">我现在有空</button>
+          <button type="button" class="btn" id="btnFocus">专注</button>
           <span class="sub" id="planInfo"></span>
         </div>
+        <p class="hint" id="reviewHint" hidden><span>该复盘今天了，顺手排好明天</span><button type="button" class="btn chip" id="reviewBtn">复盘</button></p>
         <p class="hint warn" id="replanHint" hidden><span id="replanText"></span><button type="button" class="btn chip" id="replanBtn">重排</button></p>
         <div class="duechips" id="dueChips" hidden></div>
         <div class="ruler" id="ruler"></div>
@@ -128,6 +132,7 @@
     <div class="seg narrow" id="taskFilter">
       <button type="button" data-f="open">未完成 <span class="num n"></span></button>
       <button type="button" data-f="daily">每日 <span class="num n"></span></button>
+      <button type="button" data-f="exam">考试 <span class="num n"></span></button>
       <button type="button" data-f="done">已 KO <span class="num n"></span></button>
     </div>
     <div class="seg narrow" id="taskSort">
@@ -135,6 +140,7 @@
       <button type="button" data-s="risk">按建议顺序</button>
     </div>
     <p class="sub" id="taskSum"></p>
+    <div class="exambar" id="examBar" hidden><button type="button" class="btn primary" id="examAdd">添加考试</button><button type="button" class="btn" id="examImport">识别考试安排</button></div>
     <ul class="tlist" id="taskList"></ul>
   </section>
 
@@ -158,6 +164,13 @@
         <p class="help">终点默认 2028 年 9 月 25 日，按往年推免的时间估的，待验证，可以改。</p>
         <label class="inline-check"><input type="checkbox" id="mRivalDaily">每天让对手换一句新的（需要连上 AI）</label>
       </div>
+    </section>
+    <section class="card sec">
+      <h3>专注和复盘</h3>
+      <div class="row2"><label class="f">专注（分钟）<input id="mFLen" type="number" min="5" max="180" inputmode="numeric"></label><label class="f">短休息（分钟）<input id="mFBrk" type="number" min="1" max="60" inputmode="numeric"></label></div>
+      <div class="row2"><label class="f">长休息（分钟）<input id="mFLong" type="number" min="1" max="60" inputmode="numeric"></label><label class="f">每几个番茄长休息<input id="mFEvery" type="number" min="2" max="10" inputmode="numeric"></label></div>
+      <label class="inline-check"><input type="checkbox" id="mAfter">下课后问我有没有作业（应用外也会提醒）</label>
+      <div class="row2"><label class="inline-check"><input type="checkbox" id="mReview">每晚复盘</label><label class="f">复盘时间<input id="mReviewAt" type="time"></label></div>
     </section>
     <section class="card sec" id="secMemory">
       <h3>小助手记得的事</h3>
@@ -186,6 +199,7 @@
       <div class="row2"><label class="f">午饭午休从<input id="mLunchS" type="time"></label><label class="f">到<input id="mLunchE" type="time"></label></div>
       <div class="row2"><label class="f">晚饭从<input id="mDinnerS" type="time"></label><label class="f">到<input id="mDinnerE" type="time"></label></div>
       <p class="help">饭点不排学习，每块之间留 10 分钟。</p>
+      <label class="f">考前几天开始复习（每门考试也能单独改）<input id="mExamLead" type="number" min="1" max="60" inputmode="numeric"></label>
     </section>
     <section class="card sec">
       <h3>教学周</h3>
@@ -249,6 +263,7 @@
   <div class="dlg-h"><h3 id="dtH">添加截止事项</h3></div>
   <div class="dlg-b">
     <label class="f">事项<input id="tTitle" maxlength="80" placeholder="例如：材力作业 第 3 章" autocomplete="off"></label>
+    <div class="cchips" id="tCourseChips" hidden></div>
     <div class="row2">
       <label class="f">课程<input id="tCourse" maxlength="40" list="courseNames" placeholder="可不填" autocomplete="off"></label>
       <label class="f">预计用时（分钟）<input id="tEst" type="number" min="5" max="600" step="5" inputmode="numeric"></label>
@@ -270,6 +285,7 @@
     <p class="err" id="tErr" hidden></p>
   </div>
   <div class="dlg-f">
+    <button type="button" class="btn ghost" id="tFocus">开始专注</button>
     <button type="button" class="btn danger" id="tDel" hidden>删除</button>
     <button type="button" class="btn ghost" id="tIcs" hidden>加到日历</button>
     <span class="sp"></span>
@@ -357,7 +373,9 @@
   <div class="dlg-h"><h3 id="dpH">今天这样排</h3><p class="sub" id="dpSrc"></p></div>
   <div class="dlg-b">
     <p class="err" id="dpErr" hidden></p>
-    <ul class="plist" id="dpList"></ul>
+    <ul class="elist" id="dpList"></ul>
+    <p class="empty" id="dpEmpty" hidden>要做的都已经排上了，或者剩下的空档不够一块。也可以自己加一项。</p>
+    <button type="button" class="btn ghost chip" id="dpAdd">＋ 加一项</button>
     <details class="dropbox" id="dpDrop" hidden></details>
     <p class="note" id="dpNote" hidden></p>
   </div>
@@ -396,6 +414,69 @@
   <div class="dlg-f"><button type="button" class="btn danger" id="rDel" hidden>删除</button><span class="sp"></span><button type="button" class="btn" data-close>取消</button><button type="button" class="btn primary" id="rSave">保存</button></div>
 </dialog>
 
+<dialog id="dlgFocus" aria-labelledby="dfoH">
+  <div class="dlg-h"><h3 id="dfoH">专注做哪一项？</h3><p class="sub">正计时。屏幕一分钟才更新一次，锁屏也照常计时。</p></div>
+  <div class="dlg-b">
+    <ul class="pick" id="fsList"></ul>
+    <label class="f" id="fsFree" hidden>做什么<input id="fsTitle" maxlength="40" autocomplete="off"></label>
+    <label class="f">专注满多少分钟提醒我休息（0 为不提醒）<input id="fsRemind" type="number" min="0" max="300" inputmode="numeric"></label>
+    <label class="inline-check"><input type="checkbox" id="fsSecs">显示秒数（更耗电一点）</label>
+    <label class="inline-check"><input type="checkbox" id="fsAwake">专注时屏幕常亮（更耗电）</label>
+  </div>
+  <div class="dlg-f"><span class="sp"></span><button type="button" class="btn" data-close>取消</button><button type="button" class="btn primary" id="fsStart">开始</button></div>
+</dialog>
+
+<dialog id="dlgReview" aria-labelledby="drvH">
+  <div class="dlg-h"><h3 id="drvH">今天复盘</h3></div>
+  <div class="dlg-b">
+    <ul class="rvstats" id="rvStats"></ul>
+    <p class="note" id="rvSlip" hidden></p>
+    <p class="aisum" id="rvAi" hidden></p>
+    <p class="sub" id="rvDay"></p>
+    <ul class="elist" id="rvPlan"></ul>
+    <div class="inline"><button type="button" class="btn ghost chip" id="rvAdd">＋ 加一项</button><button type="button" class="btn ghost chip" id="rvRegen">重新生成</button></div>
+  </div>
+  <div class="dlg-f"><span class="sp"></span><button type="button" class="btn" data-close>先不排</button><button type="button" class="btn primary" id="rvAccept">排进明天</button></div>
+</dialog>
+
+<dialog id="dlgExam" aria-labelledby="deH">
+  <div class="dlg-h"><h3 id="deH">添加考试</h3></div>
+  <div class="dlg-b">
+    <label class="f">课程<input id="eCourse" maxlength="40" autocomplete="off"></label>
+    <div class="cchips" id="eChips"></div>
+    <div class="row2"><label class="f">日期<input id="eDate" type="date"></label><label class="f">地点<input id="ePlace" maxlength="40" placeholder="可不填" autocomplete="off"></label></div>
+    <div class="row2"><label class="f">开始<input id="eStart" type="time"></label><label class="f">结束<input id="eEnd" type="time"></label></div>
+    <div class="f"><span>难度</span><div class="seg" id="eDiff"><button type="button" data-v="1">1</button><button type="button" data-v="2">2</button><button type="button" data-v="3">3</button><button type="button" data-v="4">4</button><button type="button" data-v="5">5</button></div></div>
+    <div class="row2">
+      <label class="f">开始复习<input id="eFrom" type="date"></label>
+      <label class="f">复习目标（小时，可以超出）<input id="eHours" type="number" min="1" max="200" inputmode="numeric"></label>
+    </div>
+    <p class="help">开始复习不填就是考前默认天数；目标按学分和难度先估一个，可以改。每天会给一个建议时长，什么时候复习你自己定。</p>
+    <label class="f">章节（可不填，一行一章，下面可以逐章打勾）<textarea id="eChapters" rows="3"></textarea></label>
+    <div class="sub-sec" id="eLogSec" hidden>
+      <h3>复习记录</h3>
+      <p class="note" id="eTotal"></p>
+      <div class="echecks" id="eChecks"></div>
+      <ul class="elog" id="eLog"></ul>
+      <div class="cbar"><input id="eLogDate" type="date" aria-label="日期"><input id="eLogMin" type="number" min="1" max="600" placeholder="分钟" inputmode="numeric" aria-label="分钟"><button type="button" class="btn" id="eLogAdd">补记</button></div>
+    </div>
+    <p class="err" id="eErr" hidden></p>
+  </div>
+  <div class="dlg-f"><button type="button" class="btn danger" id="eDel" hidden>删除</button><span class="sp"></span><button type="button" class="btn" data-close>取消</button><button type="button" class="btn primary" id="eSave">保存</button></div>
+</dialog>
+
+<dialog id="dlgExamImport" aria-labelledby="deiH">
+  <div class="dlg-h"><h3 id="deiH">识别考试安排</h3><p class="sub">粘贴考试安排的文字，或者选一张截图，识别出来的每一项都还能改。</p></div>
+  <div class="dlg-b">
+    <textarea id="eiText" rows="5" placeholder="例如：线性代数 2026-12-28 09:00-11:00 仁智楼401"></textarea>
+    <div class="inline"><button type="button" class="btn" id="eiGo">识别文字</button><button type="button" class="btn" id="eiPic">选截图识别</button></div>
+    <input type="file" id="eiFile" accept="image/*" hidden>
+    <ul class="elist" id="eiRows"></ul>
+  </div>
+  <div class="dlg-f"><span class="sp"></span><button type="button" class="btn" data-close>取消</button><button type="button" class="btn primary" id="eiSave" disabled>保存全部</button></div>
+</dialog>
+
+
 <dialog id="dlgBlock" aria-labelledby="dbH">
   <div class="dlg-h"><h3 id="dbH"></h3><p class="sub" id="dbWhen"></p></div>
   <div class="dlg-b">
@@ -406,7 +487,7 @@
         <label class="f">开始<input id="dbStart" type="time"></label>
         <label class="f">结束<input id="dbEnd" type="time"></label>
       </div>
-      <button type="button" class="btn primary" id="dbSave">保存</button>
+      <div class="inline"><button type="button" class="btn primary" id="dbSave">保存</button><button type="button" class="btn" id="dbFocus">开始专注</button></div>
       <p class="help">也可以在时间轴上长按色块直接拖。和别的安排撞了，别的会自动往后顺。</p>
     </div>
   </div>
@@ -430,6 +511,21 @@
     <div class="cbar"><input id="memText" maxlength="80" placeholder="比如：晚上九点后效率很低" autocomplete="off"><button type="button" class="btn" id="memAdd">记下</button></div></div>
   <div class="dlg-f"><span class="sp"></span><button type="button" class="btn primary" data-close>好</button></div>
 </dialog>
+
+<div class="focus" id="focus" hidden>
+  <p class="f-phase">专注中</p>
+  <h2 class="f-title" id="fTitle"></h2>
+  <div class="f-time"><b class="num" id="fMin">0</b><span id="fUnit">分钟</span></div>
+  <p class="f-note" id="fFrom"></p>
+  <div class="f-btns" id="fBtns"><button type="button" id="fPause">暂停</button><button type="button" id="fHide">收起</button><button type="button" id="fStop">结束</button></div>
+  <div class="f-end" id="fEnd" hidden>
+    <p id="fEndText"></p>
+    <div class="f-btns"><button type="button" id="fYes">完成了，KO</button><button type="button" id="fNo">还没完成</button></div>
+  </div>
+</div>
+<button type="button" class="focuspill" id="focusPill" hidden></button>
+
+<div class="aftercls" id="afterCls" hidden><span id="afterText"></span><button type="button" class="btn primary chip" id="afterLog">记作业</button><button type="button" class="btn chip" id="afterNo">没有</button></div>
 
 <div class="voice" id="voice" hidden>
   <div class="vwave" id="vWave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>

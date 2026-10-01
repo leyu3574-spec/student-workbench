@@ -179,6 +179,11 @@ button:focus-visible,a:focus-visible,summary:focus-visible,input:focus-visible{o
 .mic.on{background:var(--orange);border-color:var(--orange);color:#fff;animation:pulse 1.2s ease-in-out infinite}
 @keyframes pulse{50%{box-shadow:0 0 0 8px color-mix(in srgb,var(--orange) 25%,transparent)}}
 
+/* the camera pan must never make the page wider than the screen (that is what jolted the bottom bar) */
+html,body{overflow-x:hidden}
+@supports (overflow-x:clip){html,body{overflow-x:clip}}
+
+
 /* deadlines above the timeline; blocks never cover each other */
 .ev{z-index:2}
 .ev.nudged{box-shadow:0 -2px 0 var(--card)}
@@ -192,6 +197,78 @@ button:focus-visible,a:focus-visible,summary:focus-visible,input:focus-visible{o
 #view-ai .chat{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding-right:2px}
 #view-ai .composer{position:static;background:none;padding-bottom:0}
 .diag li.tip{display:block;background:none;padding:2px 2px 0;font-size:12.5px;color:var(--ink-3)}
+
+/* focus: black, still, no animation (cheap on OLED screens) */
+.focus{position:fixed;inset:0;z-index:70;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;background:#000;color:#E9E2F7;text-align:center}
+.focus .f-phase{margin:0;font-size:14px;letter-spacing:.2em;color:#8E84A3}
+.focus .f-title{margin:0;max-width:90%;font-size:20px;font-weight:800;line-height:1.35}
+.focus .f-time{display:flex;align-items:baseline;gap:6px}
+.focus .f-time b{font-size:96px;line-height:1;font-weight:800;color:#fff}
+.focus .f-time span{font-size:16px;color:#8E84A3}
+.focus .f-note{margin:0;font-size:12.5px;color:#5E5670}
+.focus .f-btns{display:flex;flex-wrap:wrap;justify-content:center;gap:10px;margin-top:8px}
+.focus .f-btns button{min-width:92px;padding:11px 16px;border-radius:999px;border:1px solid #2A2340;background:#0E0B16;color:#E9E2F7;font:inherit;font-weight:700;cursor:pointer}
+.focus .f-end p{margin:0 0 6px;font-size:15px;font-weight:700}
+.focusing .rlane.me .rfill,.focusing .rlane.me .rav,.focusing .nowline{animation:none!important}
+/* decorative loops stop after a few rounds instead of running all day */
+.rlane.me .rfill{animation-iteration-count:4}
+.rlane.me .rav{animation-iteration-count:3}
+#fYes{background:#2A1D4A!important;border-color:#7C4DFF!important}
+.focuspill{position:fixed;z-index:36;top:calc(10px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);max-width:86vw;padding:7px 14px;border-radius:999px;border:0;background:#120A22;color:#F4EEFF;font:inherit;font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:0 6px 18px rgba(18,10,34,.35);cursor:pointer}
+.pick{list-style:none;margin:0;padding:0;display:grid;gap:4px;max-height:42vh;overflow:auto}
+.pick label{display:flex;gap:10px;align-items:flex-start;padding:8px 10px;border-radius:12px;background:var(--soft);cursor:pointer}
+.pick input{width:18px;height:18px;min-height:0;margin:2px 0 0;accent-color:var(--purple)}
+.pick small{display:block;color:var(--ink-3);font-size:12px}
+/* exams */
+.exambar{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 10px}
+.exam{display:flex;align-items:center;gap:10px;padding:12px 4px;border-bottom:1px solid var(--line)}
+.exam.past{opacity:.5}
+.exam .ebody{all:unset;flex:1;min-width:0;display:grid;gap:3px;cursor:pointer}
+.exam .ebody b{font-size:16px}
+.exam .ebody span,.exam .ebody small{font-size:12.5px;color:var(--ink-3)}
+.exam .ebar{display:block;height:5px;border-radius:3px;background:var(--orange-2);overflow:hidden}
+.exam .ebar i{display:block;height:100%;background:linear-gradient(90deg,var(--purple),var(--orange))}
+.exam .cd{text-align:right}
+.exam .cd b{font-size:24px;color:var(--orange)}
+.erow.ex{grid-template-columns:minmax(0,1.2fr) 112px 70px 70px minmax(0,.8fr) 24px}
+@media (max-width:520px){.erow.ex{grid-template-columns:1fr 1fr 24px}.erow.ex input[data-k="start"],.erow.ex input[data-k="end"]{grid-column:auto}}
+.echecks{display:grid;gap:4px}
+.elog{list-style:none;margin:0;padding:0;max-height:24vh;overflow:auto}
+.elog li{display:flex;justify-content:space-between;padding:6px 2px;border-bottom:1px solid var(--line);font-size:13.5px}
+.elog .empty{display:block;color:var(--ink-3);border:0}
+.rchip.review{border-color:var(--orange-2)}
+.rchip.review i{border-color:var(--orange)}
+.rchip.review.on{border-color:var(--orange);background:var(--orange-2)}
+.rchip.review.on i{background:var(--orange);border-color:var(--orange)}
+#eLogDate{flex:0 0 140px}
+#eLogMin{flex:0 0 90px}
+.ev.pl.review{background:var(--orange-2);outline-color:var(--orange)}
+.ev.pl.review::before{background:var(--orange)}
+.cb.wk-pl.review{background:var(--orange-2);border-color:var(--orange)}
+.goal.exam{background:var(--orange-2);color:var(--orange)}
+/* day switcher, course chips, after-class card */
+.seg.mini{margin:0 0 10px}
+.seg.mini button{padding:6px 0;font-size:13px}
+.cchips{display:flex;flex-wrap:wrap;gap:6px;margin:-4px 0 2px}
+.cchips .btn.on{background:var(--purple);border-color:var(--purple);color:var(--on-purple)}
+.aftercls{position:fixed;z-index:35;left:12px;right:12px;bottom:calc(88px + env(safe-area-inset-bottom,0px));display:flex;align-items:center;gap:8px;padding:10px 10px 10px 14px;border-radius:18px;background:var(--card);border:1px solid var(--line);box-shadow:0 10px 30px rgba(31,22,48,.18);font-size:14px;font-weight:700}
+.aftercls span{flex:1}
+/* editable plan rows */
+.elist{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.erow{display:grid;grid-template-columns:minmax(0,1fr) 84px 84px 28px;gap:6px;align-items:center}
+.erow input{min-width:0;font:inherit;font-size:14px;padding:7px 8px;border-radius:10px;border:1.5px solid var(--line);background:var(--soft);color:var(--ink)}
+.erow input:focus{outline:none;border-color:var(--purple)}
+.erow .x{all:unset;cursor:pointer;text-align:center;font-size:18px;color:var(--ink-3)}
+#dpAdd,#rvAdd,#rvRegen{justify-self:start}
+.rvstats{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.rvstats li{display:grid;gap:2px;padding:8px 6px;border-radius:12px;background:var(--soft);text-align:center}
+.rvstats b{font-size:17px;color:var(--purple)}
+.rvstats small{font-size:11.5px;color:var(--ink-3)}
+.aisum{margin:0;padding:10px 12px;border-radius:12px;background:var(--purple-2);color:var(--ink);font-size:14px;line-height:1.6}
+/* week grid: appointments and planned blocks */
+.cb.wk-pl{background:var(--purple-2);border:1px dashed var(--purple);color:var(--ink)}
+.cb.wk-pl.ev{background:color-mix(in srgb,var(--c2) 18%,var(--card));border:1px solid var(--c2)}
+.cb.wk-pl b{font-size:11px}
 
 /* voice sheet */
 .voice{position:fixed;z-index:40;left:12px;right:12px;bottom:calc(84px + env(safe-area-inset-bottom,0px));padding:18px 16px 14px;border-radius:24px;background:linear-gradient(160deg,#241042,#120A22);color:#F4EEFF;box-shadow:0 16px 40px rgba(20,14,31,.45);display:grid;gap:12px;justify-items:center}

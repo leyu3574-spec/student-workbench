@@ -1,7 +1,8 @@
 (() => {
 'use strict';
 
-const VERSION = '0.9.__BUILD__';
+const VERSION = '1.2.__BUILD__';
+const FOCUS_ID = 2100000001, REVIEW_ID = 2100000002;
 const TEST_ID = 2100000000; // outside the range nid() produces
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
@@ -64,14 +65,16 @@ const INFO_KEYS = ['kind', 'nature', 'exam', 'credit', 'klass', 'comp', 'hours',
 function defaults() {
   return {
     v: 1,
-    settings: { nick: '', goal: '', path: '保研', rival: { name: '卷王', daily: true }, race: { start: '', finish: '2028-09-25' }, termStart: '', totalWeeks: 18, dayStart: 8, dayEnd: 22, periods: clone(DEFAULT_PERIODS), notifyLead: 60, show: {}, plan: { latest: 1380, maxBlock: 90, meals: [['12:00', '13:30'], ['17:30', '18:30']] }, updatedAt: 0 },
+    settings: { nick: '', goal: '', path: '保研', rival: { name: '卷王', daily: true }, race: { start: '', finish: '2028-09-25' }, termStart: '', totalWeeks: 18, dayStart: 8, dayEnd: 22, periods: clone(DEFAULT_PERIODS), notifyLead: 60, show: {}, plan: { latest: 1380, maxBlock: 90, meals: [['12:00', '13:30'], ['17:30', '18:30']] }, focus: { len: 25, brk: 5, long: 15, every: 4, secs: false, awake: false, remind: 0 }, afterClass: true, review: { on: true, at: '22:00' }, exam: { dailyMax: 180, lead: 10 }, updatedAt: 0 },
     courses: [],
     tasks: [],
     others: [],
     plans: [],
     routines: [],
     busy: [],
-    memory: []
+    memory: [],
+    focus: [],
+    exams: []
   };
 }
 function normSettings(v) {
@@ -86,6 +89,12 @@ function normSettings(v) {
   const rc = o.race && typeof o.race === 'object' ? o.race : {};
   o.race = { start: parseYMD(rc.start) ? rc.start : '', finish: parseYMD(rc.finish) ? rc.finish : '2028-09-25' };
   o.path = o.path === '考研' ? '考研' : '保研';
+  const fc = o.focus && typeof o.focus === 'object' ? o.focus : {};
+  o.focus = { len: clampInt(fc.len, 5, 180, 25), brk: clampInt(fc.brk, 1, 60, 5), long: clampInt(fc.long, 1, 60, 15), every: clampInt(fc.every, 2, 10, 4), secs: !!fc.secs, awake: !!fc.awake, remind: clampInt(fc.remind, 0, 300, 0) };
+  o.afterClass = o.afterClass !== false;
+  const rv0 = o.review && typeof o.review === 'object' ? o.review : {};
+  o.review = { on: rv0.on !== false, at: HM.test(rv0.at) ? rv0.at : '22:00' };
+  o.exam = { dailyMax: clampInt(o.exam && o.exam.dailyMax, 30, 600, 180), lead: clampInt(o.exam && o.exam.lead, 1, 60, 10) };
   const pl = o.plan && typeof o.plan === 'object' ? o.plan : {};
   const lat = Number(pl.latest), okMeal = m => Array.isArray(m) && HM.test(m[0]) && HM.test(m[1]) && toMin(m[1]) > toMin(m[0]);
   o.plan = { latest: lat > 0 && lat <= 24 ? lat * 60 : clampInt(lat, 18 * 60, 24 * 60, 23 * 60), maxBlock: clampInt(pl.maxBlock, 15, 240, 90),
@@ -117,7 +126,7 @@ function normCourse(x) {
 function normPlan(x) {
   return {
     id: String(x.id || newId()), date: parseYMD(x.date) ? x.date : '', start: HM.test(x.start) ? x.start : '', end: HM.test(x.end) ? x.end : '',
-    taskId: str(x.taskId), kind: ['routine', 'free', 'event'].includes(x.kind) ? x.kind : 'task', pinned: !!x.pinned, title: str(x.title).trim(), reason: str(x.reason), source: x.source === 'ai' ? 'ai' : 'local',
+    taskId: str(x.taskId), kind: ['routine', 'free', 'event', 'review'].includes(x.kind) ? x.kind : 'task', pinned: !!x.pinned, live: !!x.live, title: str(x.title).trim(), reason: str(x.reason), source: x.source === 'ai' ? 'ai' : 'local',
     status: ['planned', 'done', 'missed'].includes(x.status) ? x.status : 'planned', updatedAt: Number(x.updatedAt) || 0, deletedAt: Number(x.deletedAt) || 0
   };
 }
@@ -135,6 +144,19 @@ function normRoutine(x) {
 // times you told the assistant you're busy
 function normBusy(x) {
   return { id: String(x.id || newId()), date: parseYMD(x.date) ? x.date : '', start: HM.test(x.start) ? x.start : '', end: HM.test(x.end) ? x.end : '', note: str(x.note).slice(0, 30), updatedAt: Number(x.updatedAt) || 0, deletedAt: Number(x.deletedAt) || 0 };
+}
+// one focus session (番茄): real minutes spent, used to calibrate estimates
+function normFocus(x) {
+  return { id: String(x.id || newId()), date: parseYMD(x.date) ? x.date : '', start: Number(x.start) || 0, minutes: clampInt(x.minutes, 0, 600, 0), planned: clampInt(x.planned, 0, 600, 0),
+    taskId: str(x.taskId), kind: ['task', 'routine', 'free', 'review'].includes(x.kind) ? x.kind : 'free', title: str(x.title).slice(0, 40), status: ['stopped', 'manual'].includes(x.status) ? x.status : 'done', updatedAt: Number(x.updatedAt) || 0, deletedAt: Number(x.deletedAt) || 0 };
+}
+// an exam: typed in or recognised from the schedule, always editable
+function normExam(x) {
+  const ch = Array.isArray(x.chapters) ? x.chapters : str(x.chapters).split('\n');
+  return { id: String(x.id || newId()), course: str(x.course).trim().slice(0, 40), date: parseYMD(x.date) ? x.date : '', start: HM.test(x.start) ? x.start : '09:00', end: HM.test(x.end) ? x.end : '11:00',
+    place: str(x.place).trim().slice(0, 40), diff: clampInt(x.diff, 1, 5, 3), hours: clampInt(x.hours, 1, 200, 18), chapters: ch.map(v => str(v).trim()).filter(Boolean).slice(0, 40),
+    from: parseYMD(x.from) ? x.from : '', ticked: arr(x.ticked).map(Number).filter(n => n >= 0 && n < 40),
+    taskId: str(x.taskId), eventId: str(x.eventId), updatedAt: Number(x.updatedAt) || 0, deletedAt: Number(x.deletedAt) || 0 };
 }
 // what the assistant has learned about you
 function normMemory(x) {
@@ -169,7 +191,9 @@ function normalizeState(o) {
     plans: arr(o.plans).filter(x => x && typeof x === 'object').map(normPlan).filter(b => (b.date && b.start && b.end) || b.deletedAt),
     routines: arr(o.routines).filter(x => x && typeof x === 'object').map(normRoutine).filter(r => r.title || r.deletedAt),
     busy: arr(o.busy).filter(x => x && typeof x === 'object').map(normBusy).filter(b => (b.date && b.start && b.end) || b.deletedAt),
-    memory: arr(o.memory).filter(x => x && typeof x === 'object').map(normMemory).filter(m => m.text || m.deletedAt)
+    memory: arr(o.memory).filter(x => x && typeof x === 'object').map(normMemory).filter(m => m.text || m.deletedAt),
+    focus: arr(o.focus).filter(x => x && typeof x === 'object').map(normFocus).filter(f => f.date || f.deletedAt),
+    exams: arr(o.exams).filter(x => x && typeof x === 'object').map(normExam).filter(e => (e.course && e.date) || e.deletedAt)
   };
 }
 const alive = list => list.filter(x => !x.deletedAt);
@@ -185,6 +209,9 @@ function purgeTombstones() {
   S.busy = S.busy.filter(x => (!x.deletedAt || x.deletedAt > cut) && (!x.date || x.date >= week));
   S.routines = S.routines.filter(x => !x.deletedAt || x.deletedAt > cut);
   S.memory = S.memory.filter(x => !x.deletedAt || x.deletedAt > cut);
+  const keep = ymd(addDays(new Date(), -180));
+  S.focus = S.focus.filter(x => (!x.deletedAt || x.deletedAt > cut) && (!x.date || x.date >= keep));
+  S.exams = S.exams.filter(x => (!x.deletedAt || x.deletedAt > cut) && (!x.date || x.date >= ymd(addDays(new Date(), -60))));
 }
 
 const KV = (() => {
@@ -496,9 +523,9 @@ function routinePoints(r, at, s) {
   return p;
 }
 function leadAt(at) {
-  const s = raceStart().getTime();
+  const s = raceStart().getTime(), appts = eventTaskIds();
   let L = 0;
-  alive(S.tasks).forEach(t => { L += taskPoints(t, at, s); });
+  alive(S.tasks).forEach(t => { if (!appts.has(t.id)) L += taskPoints(t, at, s); });
   alive(S.routines).forEach(r => { L += routinePoints(r, at, s); });
   return Math.max(-3, Math.min(3, L));
 }
@@ -589,7 +616,11 @@ const nowMinOf = d => d.getHours() * 60 + d.getMinutes();
 const plansOn = date => alive(S.plans).filter(b => b.date === date);
 const busyOn = date => alive(S.busy).filter(b => b.date === date);
 const blockMin = b => toMin(b.end) - toMin(b.start);
-function doneMinutes(id, date) { return alive(S.plans).filter(b => b.taskId === id && b.status === 'done' && (!date || b.date === date)).reduce((m, b) => m + blockMin(b), 0); }
+function doneMinutes(id, date) {
+  const blocks = alive(S.plans).filter(b => b.taskId === id && b.status === 'done' && (!date || b.date === date)).reduce((m, b) => m + blockMin(b), 0);
+  const focused = alive(S.focus).filter(f => f.taskId === id && (!date || f.date === date)).reduce((m, f) => m + f.minutes, 0);
+  return Math.max(blocks, focused); // focus minutes are the real number when you used the timer
+}
 // learned from your finished work: how long things really take compared with your estimate
 function estimateFactor() {
   const r = alive(S.tasks).filter(t => t.status === 'done').map(t => doneMinutes(t.id) / t.estimate).filter(x => x > 0.2).slice(-20).sort((x, y) => x - y);
@@ -641,17 +672,21 @@ function freeSlots(date, fromMin, keepBlocks) {
   return out.filter(([a, b]) => b - a >= 10);
 }
 function keptBlocks(date, fromMin, exclude) { return plansOn(date).filter(b => b.status === 'planned' && !(exclude && exclude.has(b.id))); }
+// to-dos that stand for an appointment on the timeline
+const eventTaskIds = () => new Set(alive(S.plans).filter(b => b.kind === 'event').map(b => b.taskId));
 // everything that still needs time today: work with deadlines and today's routines
 function planItems(now, raw, exclude) {
   const date = ymd(now), items = [], nowMin = nowMinOf(now), ahead = new Map();
   if (!raw) plansOn(date).filter(b => b.status === 'planned' && toMin(b.end) > nowMin && !(exclude && exclude.has(b.id)))
     .forEach(b => ahead.set(b.taskId, (ahead.get(b.taskId) || 0) + toMin(b.end) - Math.max(toMin(b.start), nowMin)));
-  openTasks().forEach(t => { const need = remainingMin(t) - (ahead.get(t.id) || 0); if (need >= 5) items.push({ ref: t.id, kind: 'task', title: t.title, need, cap: dueCapEnd(t, date, now), risk: riskScore(t, now), reason: reasonFor(t, now) }); });
+  const appts = eventTaskIds();
+  openTasks().filter(t => !appts.has(t.id)).forEach(t => { const need = remainingMin(t) - (ahead.get(t.id) || 0); if (need >= 5) items.push({ ref: t.id, kind: 'task', title: t.title, need, cap: dueCapEnd(t, date, now), risk: riskScore(t, now), reason: reasonFor(t, now) }); });
+  examItems(now).forEach(it => { const need = it.need - (ahead.get(it.ref) || 0); if (need >= 15) items.push(Object.assign(it, { need })); });
   alive(S.routines).forEach(r => { const need = routineNeed(r, now) - (ahead.get(r.id) || 0); if (need > 0) items.push({ ref: r.id, kind: 'routine', title: r.title, need, cap: null, window: r.window, reason: '每日打卡' + (r.window !== 'any' ? '，习惯' + WINDOWS[r.window][2] : '') }); });
   return items;
 }
 function itemScore(it, at) {
-  if (it.kind === 'task') return it.risk;
+  if (it.kind === 'task' || it.kind === 'review') return it.risk;
   const [a, b] = WINDOWS[it.window];
   return at >= a && at < b ? 0.8 : 0.25;
 }
@@ -747,7 +782,7 @@ function planContext(now, exclude) {
     free_slots: freeSlots(now, fromMin, keptBlocks(date, fromMin, exclude)).map(([a, b]) => ({ start: fmtMin(a), end: fmtMin(b), minutes: b - a })),
     classes_left: classesOn(now).filter(c => toMin(c.end) > nowMin).map(c => ({ start: c.start, end: c.end, name: c.name })),
     busy: busyOn(date).map(b => ({ start: b.start, end: b.end, note: b.note })),
-    tasks: openTasks().filter(t => remainingMin(t) > 0).sort(byRisk(now)).slice(0, 15).map(t => {
+    tasks: openTasks().filter(t => remainingMin(t) > 0 && !eventTaskIds().has(t.id)).sort(byRisk(now)).slice(0, 15).map(t => {
       const d = parseDue(t.due);
       return { id: t.id, title: t.title, course: t.course, type: t.type, priority: { high: '高', mid: '中', low: '低' }[t.priority],
         due: d ? dueLabel(d, now) : '无截止', minutes_needed: remainingMin(t) };
@@ -772,7 +807,7 @@ const PLAN_PROMPT = [
 /* ---------- AI: any OpenAI-compatible service; the key never leaves this device except to that service ---------- */
 const LS_AI = 'swb:ai';
 const PROVIDERS = {
-  deepseek: { name: 'DeepSeek', base: 'https://api.deepseek.com', model: 'deepseek-v4-flash', hint: 'deepseek-v4-flash 快，deepseek-v4-pro 更强。' },
+  deepseek: { name: 'DeepSeek', base: 'https://api.deepseek.com', model: 'deepseek-flash', hint: 'deepseek-flash 是 V4.1 Flash，快，还能看图片；deepseek-v4-pro 更强。' },
   bailian: { name: '阿里百炼', base: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus', hint: '模型名以百炼控制台为准（待验证）。' },
   doubao: { name: '豆包（火山方舟）', base: 'https://ark.cn-beijing.volces.com/api/v3', model: '', hint: '模型名填方舟控制台里的模型 ID（待验证）。' },
   custom: { name: '其他', base: '', model: '', hint: '填 OpenAI 兼容接口的地址和模型名。' }
@@ -781,7 +816,9 @@ function aiConfig() {
   let c = {};
   try { c = JSON.parse(localStorage.getItem(LS_AI) || '{}') || {}; } catch (e) { c = {}; }
   const p = PROVIDERS[c.provider] ? c.provider : 'deepseek';
-  return { provider: p, key: str(c.key), base: str(c.base) || PROVIDERS[p].base, model: str(c.model) || PROVIDERS[p].model };
+  let model = str(c.model) || PROVIDERS[p].model;
+  if (p === 'deepseek' && model === 'deepseek-v4-flash') model = 'deepseek-flash'; // the old default; V4.1 Flash also reads images
+  return { provider: p, key: str(c.key), base: str(c.base) || PROVIDERS[p].base, model };
 }
 function saveAiConfig(c) { try { localStorage.setItem(LS_AI, JSON.stringify(c)); } catch (e) { /* ignore */ } }
 const aiReady = () => { const c = aiConfig(); return !!(c.key && c.base && c.model); };
@@ -874,15 +911,14 @@ function showPlanPreview(res, source, error) {
   $('#dpSrc').textContent = (source === 'ai' ? 'AI 给的方案' : '本地规则给的方案') + '，勾掉不想要的，再排进时间轴';
   $('#dpErr').hidden = !error;
   $('#dpErr').textContent = error ? `这次没用上 AI（${error}），先用本地规则排了一版。` : '';
-  $('#dpList').innerHTML = res.blocks.length
-    ? res.blocks.map((b, i) => `<li><label><input type="checkbox" checked data-i="${i}"><span class="num">${b.start}–${b.end}</span><span><b>${esc(b.title)}</b>${b.reason ? `<small>${esc(b.reason)}</small>` : ''}</span></label></li>`).join('')
-    : '<li class="empty">要做的都已经排上了，或者剩下的空档不够一块。</li>';
+  planDraft.editor = planEditor($('#dpList'), res.blocks);
+  $('#dpEmpty').hidden = res.blocks.length > 0;
   const dr = res.dropped || [];
   $('#dpDrop').hidden = !dr.length;
   $('#dpDrop').innerHTML = dr.length ? `<summary>${dr.length} 块放不下</summary>` + dr.map(d => `<p>${esc(d.title)}：${esc(d.why)}</p>`).join('') : '';
   $('#dpNote').hidden = !res.note;
   $('#dpNote').textContent = res.note || '';
-  $('#dpAccept').disabled = !res.blocks.length;
+  $('#dpAccept').disabled = false;
   $('#dpAll').hidden = !!(planDraft && planDraft.replace.length) || !plansOn(ymd(new Date())).some(b => b.status === 'planned' && !b.pinned && b.kind !== 'event');
   openDlg($('#dlgPlan'));
 }
@@ -894,16 +930,14 @@ function replaceFuture(date, fromMin, blocks, source) {
 }
 function acceptPlan() {
   if (!planDraft) return;
-  const rows = $$('#dpList input[data-i]').filter(c => c.checked);
-  const picked = rows.map(c => planDraft.blocks[+c.dataset.i]), rects = rows.map(c => c.closest('li').getBoundingClientRect()), ids = [];
-  const t = Date.now();
-  planDraft.replace.forEach(id => { const b = S.plans.find(x => x.id === id); if (b && b.status === 'planned') { b.deletedAt = t; b.updatedAt = t; } });
-  picked.forEach(b => { const nb = normPlan(Object.assign({ id: newId(), date: planDraft.date, source: planDraft.source, status: 'planned', updatedAt: t }, b)); ids.push(nb.id); S.plans.push(nb); });
+  const rows = planDraft.editor.read(), rects = $$('#dpList .erow').map(li => li.getBoundingClientRect());
+  const ids = commitRows(planDraft.date, rows, planDraft.source, planDraft.replace);
+  if (!ids) return;
   planDraft = null;
   commit('plans');
   $('#dlgPlan').close();
   requestAnimationFrame(() => flyInto(rects, ids));
-  toast(`已排进时间轴：${picked.length} 块，长按色块可以拖动调整`);
+  toast(`已排进时间轴：${ids.length} 块，长按色块可以拖动调整`);
 }
 // repeats get cleaned up: more time than a to-do needs, the same free block twice, or the same appointment twice
 function dedupePlans() {
@@ -970,7 +1004,7 @@ function resolveOverlaps() {
 function reconcilePlans() {
   const now = new Date(), t = now.getTime(), today = ymd(now), nowMin = nowMinOf(now);
   S.plans.forEach(b => {
-    if (b.deletedAt || b.status !== 'planned' || b.date < today || b.kind === 'free') return;
+    if (b.deletedAt || b.status !== 'planned' || b.date < today || b.kind === 'free' || b.kind === 'review') return;
     const future = b.date > today || toMin(b.start) >= nowMin;
     const linked = b.kind === 'task' || b.kind === 'event';
     const task = linked ? S.tasks.find(x => x.id === b.taskId) : null, r = b.kind === 'routine' ? S.routines.find(x => x.id === b.taskId) : null;
@@ -1002,7 +1036,13 @@ function compactPlan(now) {
 function rollPlan() {
   const now = new Date(), date = ymd(now), nowMin = nowMinOf(now), t = Date.now();
   let changed = false;
-  plansOn(date).forEach(b => { if (b.status === 'planned' && toMin(b.end) <= nowMin) { b.status = 'missed'; b.updatedAt = t; changed = true; } });
+  alive(S.plans).forEach(b => {
+    if (b.kind !== 'event' || b.status !== 'planned' || (b.date === date ? toMin(b.end) > nowMin : b.date > date)) return;
+    b.status = 'done'; b.updatedAt = t; changed = true;
+    const tk = S.tasks.find(x => x.id === b.taskId && !x.deletedAt);
+    if (tk && tk.status !== 'done') { tk.status = 'done'; tk.doneAt = Math.min(t, (parseYMD(b.date) || now).getTime() + toMin(b.end) * 60000); tk.updatedAt = t; }
+  });
+  plansOn(date).forEach(b => { if (b.status === 'planned' && b.kind !== 'event' && !b.live && toMin(b.end) <= nowMin) { b.status = 'missed'; b.updatedAt = t; changed = true; } });
   return compactPlan(now) || changed;
 }
 function afterProgress(msg) {
@@ -1141,8 +1181,175 @@ function renderPlanHints(now) {
   $('#replanText').textContent = missedNeed.length ? `${missedNeed.length} 块到点没做，要顺延到后面吗？` : urgent.length ? `${urgent.length} 项快到期的作业还没排进今天` : '';
   $('#replanBtn').textContent = missedNeed.length ? '顺延' : '重排';
   $('#replanBtn').onclick = missedNeed.length ? carryOver : planToday;
+  $('#reviewHint').hidden = !reviewDue(now);
+  const fm = focusMinutesToday();
   const n = mine.filter(b => b.status === 'planned').length, d = mine.filter(b => b.status === 'done').length;
-  $('#planInfo').textContent = n || d ? `今天计划 ${n + d} 块${d ? `，完成 ${d} 块` : ''}` : aiReady() ? 'AI 已连接' : '没连 AI 时用本地规则排';
+  $('#planInfo').textContent = fm ? `今天专注 ${fm} 分钟` + (n || d ? `，计划 ${n + d} 块` : '') : '';
+  if (!fm) $('#planInfo').textContent = n || d ? `今天计划 ${n + d} 块${d ? `，完成 ${d} 块` : ''}` : aiReady() ? 'AI 已连接' : '没连 AI 时用本地规则排';
+}
+
+/* ---------- 专注（正计时）: built to save battery ----------
+   Counts up from the moment you start, from timestamps only: the screen updates once a minute (or once a second if
+   you ask), only while visible, never while the screen is off. The focus screen is black and still.
+   The timeline follows the real time: the block for what you're doing starts now and grows if you run long
+   (later blocks step back); when you stop it ends where you stopped and the next blocks move up. */
+const LS_FOCUS = 'swb:focus-active';
+let F = null, wakeLock = null, focusPick = null;
+const focusElapsed = () => Math.max(0, Date.now() - F.startAt - F.pausedMs - (F.pausedAt ? Date.now() - F.pausedAt : 0));
+function saveF() { try { if (F) localStorage.setItem(LS_FOCUS, JSON.stringify(Object.assign({}, F, { timer: null }))); else localStorage.removeItem(LS_FOCUS); } catch (e) { /* ignore */ } }
+// what you can focus on: today's blocks first, then work by urgency, then today's routines
+function focusChoices() {
+  const now = new Date(), date = ymd(now), nowMin = nowMinOf(now), seen = new Set(), out = [];
+  plansOn(date).filter(b => b.status === 'planned' && b.kind !== 'event' && toMin(b.end) > nowMin).sort((x, y) => toMin(x.start) - toMin(y.start)).forEach(b => {
+    if (b.taskId && seen.has(b.taskId)) return; if (b.taskId) seen.add(b.taskId);
+    out.push({ ref: b.taskId, kind: b.kind, title: b.title, blockId: b.id, note: `${b.start}–${b.end} 的安排` });
+  });
+  planItems(now, true).filter(it => !seen.has(it.ref)).sort((x, y) => itemScore(y, nowMin) - itemScore(x, nowMin)).forEach(it => { seen.add(it.ref); out.push({ ref: it.ref, kind: it.kind, title: it.title, blockId: '', note: it.reason }); });
+  return out.slice(0, 12);
+}
+function openFocusSetup(opts) {
+  const o = opts || {}, list = focusChoices();
+  if (o.ref && !list.some(x => x.ref === o.ref)) list.unshift({ ref: o.ref, kind: o.kind || 'task', title: o.title, blockId: o.blockId || '', note: '' });
+  focusPick = o.ref ? list.find(x => x.ref === o.ref) || list[0] : list[0] || null;
+  if (focusPick && o.blockId) focusPick.blockId = o.blockId;
+  const box = $('#fsList');
+  box.innerHTML = list.map((x, i) => `<li><label><input type="radio" name="fsPick" value="${i}" ${focusPick === x ? 'checked' : ''}><span><b>${esc(x.title)}</b>${x.note ? `<small>${esc(x.note)}</small>` : ''}</span></label></li>`).join('') +
+    `<li><label><input type="radio" name="fsPick" value="free" ${focusPick ? '' : 'checked'}><span><b>不关联待办</b><small>自己写要做什么</small></span></label></li>`;
+  $$('input[name="fsPick"]', box).forEach(r => r.addEventListener('change', () => { focusPick = r.value === 'free' ? null : list[+r.value]; $('#fsFree').hidden = !!focusPick; }));
+  $('#fsFree').hidden = !!focusPick; $('#fsTitle').value = '';
+  $('#fsRemind').value = String(S.settings.focus.remind);
+  $('#fsSecs').checked = S.settings.focus.secs; $('#fsAwake').checked = S.settings.focus.awake;
+  openDlg($('#dlgFocus'));
+}
+function startFocus() {
+  const pick = focusPick, title = pick ? pick.title : ($('#fsTitle').value.trim() || '专注');
+  Object.assign(S.settings.focus, { remind: clampInt($('#fsRemind').value, 0, 300, 0), secs: $('#fsSecs').checked, awake: $('#fsAwake').checked });
+  touch(S.settings);
+  const now = new Date(), date = ymd(now), s0 = nowMinOf(now), ref = pick ? pick.ref : '', kind = pick ? pick.kind : 'free';
+  // the block for this work starts now; it keeps its planned length unless you run longer
+  let b = pick && pick.blockId ? S.plans.find(x => x.id === pick.blockId && !x.deletedAt && x.status === 'planned') : null;
+  if (!b && ref) b = plansOn(date).filter(x => x.taskId === ref && x.status === 'planned').sort((x, y) => toMin(x.start) - toMin(y.start))[0] || null;
+  const task = ref && S.tasks.find(t => t.id === ref);
+  const len = b ? blockMin(b) : Math.max(25, Math.min(90, task ? remainingMin(task) || 45 : 45));
+  if (!b) { b = normPlan({ id: newId(), date, taskId: ref, kind, title, source: 'local', status: 'planned', reason: '专注中', updatedAt: Date.now() }); S.plans.push(b); }
+  Object.assign(b, { date, start: fmtMin(s0), end: fmtMin(Math.min(1439, s0 + len)), pinned: true, live: true });
+  touch(b); pushAfterLive(b);
+  F = { ref, kind, title, blockId: b.id, startAt: Date.now(), startMin: s0, pausedMs: 0, pausedAt: 0, remind: S.settings.focus.remind, ended: false };
+  $('#dlgFocus').close();
+  commit('plans');
+  showFocus();
+}
+function showFocus() {
+  if (!F) return;
+  saveF();
+  document.body.classList.add('focusing');
+  $('#focusPill').hidden = true;
+  $('#focus').hidden = false; $('#fEnd').hidden = true; $('#fBtns').hidden = false;
+  $('#fTitle').textContent = F.title;
+  $('#fFrom').textContent = `${fmtMin(F.startMin)} 开始`;
+  $('#fPause').textContent = F.pausedAt ? '继续' : '暂停';
+  scheduleFocusRemind();
+  keepAwake(S.settings.focus.awake && !F.pausedAt);
+  tickFocus();
+}
+function tickFocus() {
+  if (!F || F.ended) return;
+  clearTimeout(F.timer);
+  const showing = !$('#focus').hidden, pill = !$('#focusPill').hidden;
+  if (document.hidden || (!showing && !pill)) return; // nothing on screen: no timer at all
+  const ms = focusElapsed(), mins = Math.floor(ms / 60000), secs = S.settings.focus.secs && showing;
+  if (showing) { $('#fMin').textContent = secs ? `${pad(mins)}:${pad(Math.floor(ms / 1000) % 60)}` : String(mins); $('#fUnit').textContent = secs ? '' : '分钟'; }
+  if (pill) $('#focusPill').textContent = `专注中 ${mins} 分钟 · ${F.title}`;
+  growLiveBlock(mins);
+  if (F.pausedAt) return;
+  const step = secs ? 1000 - (ms % 1000) : 60000 - (ms % 60000);
+  F.timer = setTimeout(tickFocus, step + 40);
+}
+// whatever the focus block now covers moves to right after it (even if its planned start has already passed)
+function pushAfterLive(lb) {
+  const a = toMin(lb.start), e = toMin(lb.end);
+  plansOn(lb.date).filter(x => x.id !== lb.id && x.status === 'planned' && x.kind !== 'event' && toMin(x.start) < e && toMin(x.end) > a)
+    .sort((x, y) => toMin(x.start) - toMin(y.start)).forEach(x => { const len = blockMin(x); x.start = fmtMin(e); x.end = fmtMin(Math.min(1439, e + len)); touch(x); });
+}
+// running long pushes the block's end (and whatever comes after) back, minute by minute
+function growLiveBlock(mins) {
+  const b = S.plans.find(x => x.id === F.blockId && !x.deletedAt);
+  if (!b) return;
+  const want = Math.min(1439, F.startMin + Math.max(1, mins));
+  if (want > toMin(b.end)) { b.end = fmtMin(want); touch(b); pushAfterLive(b); if (!$('#focusPill').hidden) commit('plans'); else { resolveOverlaps(); persist(); } }
+}
+async function scheduleFocusRemind() {
+  const LN = plugin('LocalNotifications');
+  if (!LN || !F) return;
+  try {
+    await LN.cancel({ notifications: [{ id: FOCUS_ID }] });
+    const left = F.remind * 60000 - focusElapsed();
+    if (!F.remind || F.pausedAt || left <= 0) return;
+    await ensureChannel(LN);
+    await LN.schedule({ notifications: [{ id: FOCUS_ID, channelId: 'deadline3', title: `已经专注 ${F.remind} 分钟了`, body: `${F.title}：起来活动一下，或者继续`, schedule: { at: new Date(Date.now() + left), allowWhileIdle: true } }] });
+  } catch (e) { console.warn('focus notify', e); }
+}
+async function keepAwake(on) {
+  try {
+    if (on && navigator.wakeLock && !wakeLock) wakeLock = await navigator.wakeLock.request('screen');
+    if (!on && wakeLock) { await wakeLock.release(); wakeLock = null; }
+  } catch (e) { wakeLock = null; }
+}
+// stop: the block ends where you stopped, the minutes are recorded, then you say whether the work is done
+function stopFocus() {
+  if (!F) return;
+  clearTimeout(F.timer); keepAwake(false);
+  const LN = plugin('LocalNotifications'); if (LN) LN.cancel({ notifications: [{ id: FOCUS_ID }] }).catch(() => {});
+  const mins = Math.max(1, Math.round(focusElapsed() / 60000));
+  const b = S.plans.find(x => x.id === F.blockId && !x.deletedAt);
+  if (b) { b.end = fmtMin(Math.min(1439, F.startMin + mins)); pushAfterLive(b); b.status = 'done'; b.live = false; touch(b); }
+  S.focus.push(normFocus({ id: newId(), date: ymd(new Date(F.startAt)), start: F.startAt, minutes: mins, planned: 0, taskId: F.ref, kind: F.kind, title: F.title, status: 'done', updatedAt: Date.now() }));
+  F.ended = true; F.doneMin = mins; saveF();
+  showEnd();
+}
+function showEnd() {
+  $('#focus').hidden = false; $('#focusPill').hidden = true; document.body.classList.add('focusing');
+  $('#fTitle').textContent = F.title;
+  $('#fBtns').hidden = true; $('#fEnd').hidden = false;
+  $('#fMin').textContent = String(F.doneMin || 0); $('#fUnit').textContent = '分钟';
+  $('#fFrom').textContent = `${fmtMin(F.startMin)}–${fmtMin(Math.min(1439, F.startMin + (F.doneMin || 0)))}`;
+  const ex = F.kind === 'review' && S.exams.find(x => x.id === F.ref);
+  $('#fEndText').textContent = ex ? `记下了。${ex.course}今天 ${reviewedOn(ex, ymd(new Date()))} / ${examTarget(ex, new Date()) || '—'} 分钟，总共 ${fmtH(reviewedTotal(ex))} 小时` : F.ref ? '这项任务完成了吗？' : '专注结束';
+  $('#fYes').hidden = !F.ref || F.kind === 'review'; $('#fNo').textContent = F.ref && F.kind !== 'review' ? '还没完成' : '好';
+}
+function finishFocus(completed) {
+  const ref = F.ref, kind = F.kind, mins = F.doneMin || 0;
+  F = null; saveF();
+  $('#focus').hidden = true; $('#focusPill').hidden = true; document.body.classList.remove('focusing');
+  const rest = mins >= 25 ? `，休息 ${Math.max(3, Math.round(mins / 5))} 分钟吧` : '';
+  if (completed && kind === 'task') {
+    const t = S.tasks.find(x => x.id === ref && !x.deletedAt);
+    if (t && t.status !== 'done') { const before = raceOn() ? raceState(new Date()).L : 0; t.status = 'done'; t.doneAt = Date.now(); touch(t); reconcilePlans(); const gain = raceOn() ? raceState(new Date()).L - before : 0; afterProgress(`KO！${t.title}，专注 ${mins} 分钟` + (gain > 0.01 ? `，甩开${rival().name} ${gain.toFixed(1)} km` : '') + rest); return; }
+  }
+  if (completed && kind === 'routine') { const r = S.routines.find(x => x.id === ref); if (r && !r.done[ymd(new Date())]) { r.done[ymd(new Date())] = 1; touch(r); reconcilePlans(); afterProgress(`打卡！${r.title}，专注 ${mins} 分钟${rest}`); return; } }
+  const t = kind === 'task' && S.tasks.find(x => x.id === ref && !x.deletedAt);
+  afterProgress(t ? `记下了 ${mins} 分钟，${t.title}还剩约 ${remainingMin(t)} 分钟${rest}` : kind === 'review' ? `复习记下了 ${mins} 分钟${rest}` : `专注了 ${mins} 分钟${rest}`);
+}
+function focusMinutesToday() { const d = ymd(new Date()); return alive(S.focus).filter(f => f.date === d).reduce((m, f) => m + f.minutes, 0); }
+function wireFocus() {
+  $('#btnFocus').addEventListener('click', () => (F ? showFocus() : openFocusSetup()));
+  $('#fsStart').addEventListener('click', startFocus);
+  $('#fPause').addEventListener('click', () => {
+    if (!F) return;
+    if (F.pausedAt) { F.pausedMs += Date.now() - F.pausedAt; F.pausedAt = 0; } else F.pausedAt = Date.now();
+    showFocus();
+  });
+  $('#fStop').addEventListener('click', stopFocus);
+  $('#fHide').addEventListener('click', () => { $('#focus').hidden = true; document.body.classList.remove('focusing'); $('#focusPill').hidden = false; commit('plans'); tickFocus(); });
+  $('#focusPill').addEventListener('click', showFocus);
+  $('#fYes').addEventListener('click', () => finishFocus(true));
+  $('#fNo').addEventListener('click', () => finishFocus(false));
+  document.addEventListener('visibilitychange', () => { if (F && !document.hidden && !F.ended) { tickFocus(); if (S.settings.focus.awake) keepAwake(true); } });
+  // a session survives the app being closed: pick it up where it is
+  try {
+    const saved = JSON.parse(localStorage.getItem(LS_FOCUS) || 'null');
+    if (saved && saved.startAt) { F = saved; if (F.ended) showEnd(); else showFocus(); }
+  } catch (e) { F = null; }
 }
 
 /* ---------- 我现在有空: what to do with the time you've got ---------- */
@@ -1175,6 +1382,320 @@ function showFreeTime(minutes) {
   $$('#dfList [data-i]').forEach(b => b.addEventListener('click', () => { startNow(list[+b.dataset.i]); $('#dlgFree').close(); }));
   $('#dfAsk').hidden = !aiReady();
   $('#dfAsk').onclick = () => { $('#dlgFree').close(); location.hash = '#ai'; setTimeout(() => sendChat(`我现在有 ${minutes} 分钟，做什么好？`), 200); };
+}
+
+/* ---------- 6. exams: a short, intense review window with daily targets you fit in yourself ----------
+   Nothing is pinned to a clock: each day of the window gets a suggested amount, you do it whenever suits you
+   (focus on it, or let 排今天 / 我现在有空 / the assistant slot it in). Every minute is recorded, and the total is a
+   goal you can go past, not a limit. */
+const DIFF = [0.6, 0.8, 1, 1.3, 1.6];
+function suggestHours(course, diff) {
+  const c = alive(S.courses).find(x => x.name === course), credit = c ? parseFloat(c.info && c.info.credit) : NaN;
+  return Math.max(4, Math.round((isNaN(credit) ? 3 : credit) * 6 * DIFF[diff - 1]));
+}
+// each exam also shows as an appointment on its day and as a to-do (reminded the day before)
+function syncExamEvent(e) {
+  const t0 = Date.now(), title = `${e.course}考试`;
+  let task = S.tasks.find(x => x.id === e.taskId && !x.deletedAt);
+  if (!task) { task = normTask({ id: newId(), title, type: '考试', due: `${e.date}T${e.start}`, estimate: Math.max(5, toMin(e.end) - toMin(e.start)), remind: 1440, status: 'todo', createdAt: t0, updatedAt: t0 }); S.tasks.push(task); e.taskId = task.id; }
+  Object.assign(task, { title, type: '考试', due: `${e.date}T${e.start}`, estimate: Math.max(5, toMin(e.end) - toMin(e.start)) }); touch(task);
+  let ev = S.plans.find(x => x.id === e.eventId && !x.deletedAt);
+  if (!ev) { ev = normPlan({ id: newId(), kind: 'event', pinned: true, source: 'local', status: 'planned', taskId: task.id, updatedAt: t0 }); S.plans.push(ev); e.eventId = ev.id; }
+  Object.assign(ev, { date: e.date, start: e.start, end: e.end, title: title + (e.place ? ' · ' + e.place : ''), taskId: task.id, reason: '考试' }); touch(ev);
+}
+function removeExam(e) {
+  const t0 = Date.now();
+  e.deletedAt = t0; touch(e);
+  [S.tasks.find(x => x.id === e.taskId), S.plans.find(x => x.id === e.eventId)].forEach(x => { if (x && !x.deletedAt) { x.deletedAt = t0; x.updatedAt = t0; } });
+  alive(S.plans).forEach(b => { if (b.kind === 'review' && b.taskId === e.id && b.status === 'planned') { b.deletedAt = t0; b.updatedAt = t0; } });
+}
+const examDays = e => Math.round((parseYMD(e.date) - startOfDay(new Date())) / 86400000);
+function reviewFrom(e) { return parseYMD(e.from) || addDays(parseYMD(e.date), -S.settings.exam.lead); }
+// minutes reviewed: focus sessions and hand-logged time on this exam, plus finished review blocks without a focus record
+function reviewedOn(e, date) { return doneMinutes(e.id, date); }
+function reviewedTotal(e) { return doneMinutes(e.id); }
+// today's suggested amount: what's left of the goal spread over the days left (at least 30 minutes while in the window)
+function examTarget(e, now) {
+  const day = startOfDay(now), ex = parseYMD(e.date), from = startOfDay(reviewFrom(e));
+  if (day < from || day >= ex) return 0;
+  const daysLeft = Math.max(1, Math.round((ex - day) / 86400000));
+  const before = reviewedTotal(e) - reviewedOn(e, ymd(day));
+  return Math.max(30, Math.ceil(Math.max(0, e.hours * 60 - before) / daysLeft / 5) * 5);
+}
+function activeExams(now) { return alive(S.exams).filter(e => examTarget(e, now) > 0); }
+function examItems(now) {
+  return activeExams(now).map(e => {
+    const target = examTarget(e, now), done = reviewedOn(e, ymd(now)), days = examDays(e);
+    return { ref: e.id, kind: 'review', title: `${e.course}复习`, need: Math.max(0, target - done), cap: null, window: 'any', risk: 0.4 + 2 / Math.max(1, days), reason: `考前 ${days} 天，今天目标 ${target} 分钟` };
+  }).filter(it => it.need >= 15);
+}
+const fmtH = m => (m / 60).toFixed(m % 60 ? 1 : 0);
+function renderReviewToday(now) {
+  const box = $('#todayReview'), list = activeExams(now);
+  box.hidden = !list.length;
+  box.innerHTML = list.map(e => { const t = examTarget(e, now), d = reviewedOn(e, ymd(now)); return `<button type="button" class="rchip review${d >= t ? ' on' : ''}" data-x="${e.id}"><i></i><span>${esc(e.course)}复习</span><small>${d} / ${t} 分</small></button>`; }).join('');
+  $$('[data-x]', box).forEach(b => b.addEventListener('click', () => { const e = S.exams.find(x => x.id === b.dataset.x); if (e) openFocusSetup({ ref: e.id, kind: 'review', title: `${e.course}复习` }); }));
+}
+let editExamId = null, hoursTouched = false;
+function openExam(id) {
+  const e = id ? S.exams.find(x => x.id === id && !x.deletedAt) : null;
+  editExamId = e ? e.id : null; hoursTouched = !!e;
+  $('#deH').textContent = e ? `${e.course}考试` : '添加考试';
+  $('#eCourse').value = e ? e.course : '';
+  $('#eDate').value = e ? e.date : ymd(addDays(new Date(), 14));
+  $('#eStart').value = e ? e.start : '09:00'; $('#eEnd').value = e ? e.end : '11:00';
+  $('#ePlace').value = e ? e.place : '';
+  $('#eFrom').value = e ? ymd(reviewFrom(e)) : '';
+  $('#eFrom').placeholder = '';
+  setSeg('#eDiff', String(e ? e.diff : 3));
+  $('#eHours').value = String(e ? e.hours : 18);
+  $('#eChapters').value = e ? e.chapters.join('\n') : '';
+  const names = Array.from(new Set(alive(S.courses).map(c => c.name)));
+  $('#eChips').innerHTML = names.map(n => `<button type="button" class="btn chip" data-ec="${esc(n)}">${esc(n)}</button>`).join('');
+  $$('[data-ec]', $('#eChips')).forEach(b => b.addEventListener('click', () => { $('#eCourse').value = b.dataset.ec; autoHours(); }));
+  renderExamLog(e);
+  resetDel($('#eDel'), !!e); hideErr('#eErr');
+  openDlg($('#dlgExam'));
+}
+// the review record: chapters you've ticked, and minutes per day (focus and hand-logged)
+function renderExamLog(e) {
+  $('#eLogSec').hidden = !e;
+  if (!e) return;
+  const total = reviewedTotal(e), goal = e.hours * 60;
+  $('#eTotal').textContent = `已复习 ${fmtH(total)} 小时 / 目标 ${e.hours} 小时` + (total > goal ? `，超出 ${fmtH(total - goal)} 小时 ✓` : total >= goal ? ' ✓' : '');
+  $('#eChecks').innerHTML = e.chapters.map((c, i) => `<label class="inline-check"><input type="checkbox" data-ch="${i}" ${e.ticked.includes(i) ? 'checked' : ''}>${esc(c)}</label>`).join('');
+  $$('#eChecks [data-ch]').forEach(cb => cb.addEventListener('change', () => { const i = +cb.dataset.ch; e.ticked = cb.checked ? Array.from(new Set(e.ticked.concat(i))) : e.ticked.filter(x => x !== i); touch(e); persist(); }));
+  const byDay = new Map();
+  alive(S.focus).filter(f => f.taskId === e.id).forEach(f => byDay.set(f.date, (byDay.get(f.date) || 0) + f.minutes));
+  const days = Array.from(byDay.keys()).sort().reverse().slice(0, 14);
+  $('#eLog').innerHTML = days.length ? days.map(d => `<li><span>${md(parseYMD(d))} 周${WD[isoDay(parseYMD(d)) - 1]}</span><b class="num">${byDay.get(d)} 分钟</b></li>`).join('') : '<li class="empty">还没有记录。在今天页点这门课的复习开始专注，或者在下面补记。</li>';
+  $('#eLogDate').value = ymd(new Date());
+  $('#eLogMin').value = '';
+}
+function logReview() {
+  const raw = +$('#eLogMin').value;
+  if (raw > 600) { toast('一条最多记 10 小时，多的分成两天记'); return; }
+  const e = S.exams.find(x => x.id === editExamId && !x.deletedAt), mins = clampInt(raw, 1, 600, 0), date = $('#eLogDate').value;
+  if (!e || !mins || !parseYMD(date)) { toast('填一下日期和分钟数'); return; }
+  S.focus.push(normFocus({ id: newId(), date, start: parseYMD(date).getTime() + 12 * 3600000, minutes: mins, taskId: e.id, kind: 'review', title: `${e.course}复习`, status: 'manual', updatedAt: Date.now() }));
+  commit('plans'); renderExamLog(e);
+  toast(`记上了：${e.course} ${mins} 分钟`);
+}
+function autoHours() { if (!hoursTouched) $('#eHours').value = String(suggestHours($('#eCourse').value.trim(), +(segVal('#eDiff') || 3))); }
+function saveExam() {
+  const data = { course: $('#eCourse').value.trim(), date: $('#eDate').value, start: $('#eStart').value, end: $('#eEnd').value, place: $('#ePlace').value.trim(), diff: segVal('#eDiff') || 3, hours: $('#eHours').value, chapters: $('#eChapters').value, from: $('#eFrom').value };
+  if (!data.course) return showErr('#eErr', '写一下是哪门课。');
+  if (!parseYMD(data.date)) return showErr('#eErr', '选一下考试日期。');
+  if (toMin(data.end) == null || toMin(data.start) == null || toMin(data.end) <= toMin(data.start)) return showErr('#eErr', '结束时间要晚于开始时间。');
+  if (data.from && data.from >= data.date) return showErr('#eErr', '开始复习要早于考试日期。');
+  let e = editExamId ? S.exams.find(x => x.id === editExamId) : null;
+  if (e) Object.assign(e, normExam(Object.assign({}, e, data)));
+  else { e = normExam(Object.assign({ id: newId() }, data)); S.exams.push(e); }
+  syncExamEvent(e); touch(e);
+  commit('tasks'); $('#dlgExam').close();
+}
+// recognise exams from pasted text or a screenshot (V4.1 Flash reads images); the result stays editable
+let importRows = [];
+const EXAM_ASK = (y, courses) => `从考试安排里提取每一门考试。没写年份的按 ${y} 年（如果月份已经过去就按 ${y + 1} 年）。课程名尽量对上这些课表里的名字：${courses.join('、')}。只输出 json：{"exams":[{"course":"课程名","date":"YYYY-MM-DD","start":"HH:MM","end":"HH:MM","place":"地点"}]}`;
+async function recogniseExams(image) {
+  const text = $('#eiText').value.trim();
+  if (!text && !image) { toast('先粘贴考试安排的文字，或者选一张截图'); return; }
+  if (!aiReady()) { toast('识别要先连上 AI；也可以点“添加考试”手动填'); return; }
+  const btn = image ? $('#eiPic') : $('#eiGo'), label = btn.textContent;
+  btn.disabled = true; btn.textContent = '正在识别…';
+  try {
+    const y = new Date().getFullYear(), courses = Array.from(new Set(alive(S.courses).map(c => c.name)));
+    const content = image ? [{ type: 'text', text: EXAM_ASK(y, courses) + '\n考试安排在这张截图里。' }, { type: 'image_url', image_url: { url: image } }] : EXAM_ASK(y, courses) + '\n考试安排：\n' + text.slice(0, 4000);
+    const o = parseJSONLoose(await callAI([{ role: 'user', content }], { json: true, maxTokens: 900, temperature: 0.1 }));
+    importRows = arr(o && o.exams).map(x => normExam(Object.assign({}, x, { hours: suggestHours(str(x.course), 3) }))).filter(x => x.course);
+    renderImportRows();
+    if (!importRows.length) toast('没认出考试，换一张清楚点的图或一段文字，或者手动添加');
+  } catch (e) { toast((image ? '看图失败：' : '识别失败：') + (e.message || e) + (image ? '（模型名要用 deepseek-flash）' : '')); }
+  btn.disabled = false; btn.textContent = label;
+}
+// shrink the screenshot before sending: enough to read, small enough to be quick and cheap
+function shrinkImage(file) {
+  return new Promise((res, rej) => {
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, 1600 / Math.max(img.width, img.height)), c = document.createElement('canvas');
+      c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url); res(c.toDataURL('image/jpeg', 0.85));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('图片打不开')); };
+    img.src = url;
+  });
+}
+function renderImportRows() {
+  $('#eiRows').innerHTML = importRows.map((x, i) => `<li class="erow ex"><input class="et" data-k="course" data-i="${i}" value="${esc(x.course)}"><input type="date" data-k="date" data-i="${i}" value="${x.date}"><input type="time" data-k="start" data-i="${i}" value="${x.start}"><input type="time" data-k="end" data-i="${i}" value="${x.end}"><input data-k="place" data-i="${i}" value="${esc(x.place)}" placeholder="地点"><button type="button" class="x" data-del="${i}" aria-label="去掉">×</button></li>`).join('');
+  $$('#eiRows input').forEach(inp => inp.addEventListener('input', () => { importRows[+inp.dataset.i][inp.dataset.k] = inp.value; }));
+  $$('#eiRows [data-del]').forEach(b => b.addEventListener('click', () => { importRows.splice(+b.dataset.del, 1); renderImportRows(); }));
+  $('#eiSave').disabled = !importRows.length;
+}
+function saveImported() {
+  importRows.forEach(x => {
+    const same = alive(S.exams).find(e => similar(e.course, x.course) >= 0.8);
+    const e = same ? Object.assign(same, normExam(Object.assign({}, same, { date: x.date, start: x.start, end: x.end, place: x.place }))) : normExam(Object.assign({ id: newId() }, x));
+    if (!same) S.exams.push(e);
+    if (parseYMD(e.date)) { syncExamEvent(e); touch(e); }
+  });
+  importRows = [];
+  commit('tasks'); $('#dlgExamImport').close();
+  toast('考试已保存');
+}
+function renderExams(list) {
+  const now = new Date(), exams = alive(S.exams).sort((a, b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start));
+  list.innerHTML = '';
+  if (!exams.length) list.innerHTML = '<li class="empty">考试安排出来后，在这里手动添加，或者把考试安排的文字、截图交给小助手识别。每门考试默认考前 10 天开始复习，每天给一个建议时长，什么时候复习你自己定。</li>';
+  exams.forEach(e => {
+    const days = examDays(e), total = reviewedTotal(e), goal = e.hours * 60, pct = Math.min(100, Math.round(total / goal * 100));
+    const from = reviewFrom(e), inWin = examTarget(e, now) > 0, t = examTarget(e, now), today = reviewedOn(e, ymd(now));
+    const status = days < 0 ? '已结束' : inWin ? `复习中：今天 ${today} / ${t} 分钟` : startOfDay(now) < startOfDay(from) ? `${md(from)} 开始复习` : '';
+    const li = mk(list, 'li', 'exam' + (days < 0 ? ' past' : ''));
+    li.innerHTML = `<button type="button" class="ebody"><b>${esc(e.course)}</b><span>${md(parseYMD(e.date))} 周${WD[isoDay(parseYMD(e.date)) - 1]} ${e.start}–${e.end}${e.place ? ' · ' + esc(e.place) : ''}</span>
+      <span class="ebar"><i style="width:${pct}%"></i></span><small>已复习 ${fmtH(total)} / 目标 ${e.hours} 小时${total > goal ? `，超出 ${fmtH(total - goal)} 小时 ✓` : ''}${status ? '　' + status : ''}</small></button>
+      <span class="cd">${days > 0 ? `<b class="num">${days}</b><small>天后</small>` : days === 0 ? '<b>今天</b>' : '<small>已结束</small>'}</span>`;
+    $('.ebody', li).addEventListener('click', () => openExam(e.id));
+  });
+  $('#taskSum').textContent = exams.length ? `${exams.filter(e => examDays(e) >= 0).length} 门考试待考` : '';
+}
+function wireExams() {
+  $('#examAdd').addEventListener('click', () => openExam(null));
+  $('#examImport').addEventListener('click', () => { importRows = []; $('#eiText').value = ''; renderImportRows(); openDlg($('#dlgExamImport')); });
+  $('#eSave').addEventListener('click', saveExam);
+  $('#eDel').addEventListener('click', ev => armDelete(ev.currentTarget, () => { const e = S.exams.find(x => x.id === editExamId); if (e) removeExam(e); commit('tasks'); $('#dlgExam').close(); }));
+  $('#eLogAdd').addEventListener('click', logReview);
+  $$('#eDiff button').forEach(b => b.addEventListener('click', () => { setSeg('#eDiff', b.dataset.v); autoHours(); }));
+  $('#eCourse').addEventListener('change', autoHours);
+  $('#eHours').addEventListener('input', () => { hoursTouched = true; });
+  $('#eiGo').addEventListener('click', () => recogniseExams(null));
+  $('#eiPic').addEventListener('click', () => $('#eiFile').click());
+  $('#eiFile').addEventListener('change', async ev => { const f = ev.target.files && ev.target.files[0]; ev.target.value = ''; if (!f) return; try { recogniseExams(await shrinkImage(f)); } catch (e) { toast(e.message || '图片打不开'); } });
+  $('#eiSave').addEventListener('click', saveImported);
+  $('#mExamLead').addEventListener('change', e => { S.settings.exam.lead = clampInt(e.target.value, 1, 60, 10); touch(S.settings); commit('settings'); });
+}
+
+/* ---------- 2. homework knows its course ---------- */
+// today's classes as one-tap chips in the to-do form; the class that just ended is picked for you
+function courseChips(isNew) {
+  const now = new Date(), nowMin = nowMinOf(now), classes = classesOn(now);
+  const names = Array.from(new Set(classes.map(c => c.name)));
+  const recent = classes.filter(c => toMin(c.start) <= nowMin && nowMin - toMin(c.end) < 180).sort((x, y) => toMin(y.end) - toMin(x.end))[0];
+  const box = $('#tCourseChips');
+  box.hidden = !names.length;
+  box.innerHTML = names.map(n => `<button type="button" class="btn chip${recent && recent.name === n ? ' on' : ''}" data-c="${esc(n)}">${esc(n)}</button>`).join('');
+  $$('[data-c]', box).forEach(b => b.addEventListener('click', () => { $('#tCourse').value = b.dataset.c; $$('[data-c]', box).forEach(x => x.classList.toggle('on', x === b)); }));
+  if (isNew && recent && !$('#tCourse').value) $('#tCourse').value = recent.name;
+}
+// a few minutes after class ends: "有作业吗？"
+const LS_ASKED = 'swb:asked';
+let afterCourse = '';
+function checkAfterClass() {
+  if (!S.settings.afterClass || document.querySelector('dialog[open]') || !$('#afterCls').hidden || (F && !$('#focus').hidden)) return;
+  const now = new Date(), nowMin = nowMinOf(now), key = ymd(now);
+  const c = classesOn(now).find(x => nowMin >= toMin(x.end) + 2 && nowMin <= toMin(x.end) + 20);
+  if (!c) return;
+  let asked = {};
+  try { asked = JSON.parse(localStorage.getItem(LS_ASKED) || '{}') || {}; } catch (e) { asked = {}; }
+  const id = `${key}|${c.name}|${c.end}`;
+  if (asked[id]) return;
+  asked = Object.fromEntries(Object.entries(asked).filter(([k]) => k.startsWith(key)));
+  asked[id] = 1;
+  try { localStorage.setItem(LS_ASKED, JSON.stringify(asked)); } catch (e) { /* ignore */ }
+  afterCourse = c.name;
+  $('#afterText').textContent = `${c.name}下课了，有作业吗？`;
+  $('#afterCls').hidden = false;
+}
+function logHomework(course) {
+  $('#afterCls').hidden = true;
+  openTask(null);
+  if (course) { $('#tCourse').value = course; $$('#tCourseChips [data-c]').forEach(x => x.classList.toggle('on', x.dataset.c === course)); }
+}
+
+/* ---------- 4. the nightly review, with tomorrow's plan you can edit ---------- */
+const LS_REVIEWED = 'swb:reviewed';
+function reviewDue(now) {
+  if (!S.settings.review.on) return false;
+  let done = ''; try { done = localStorage.getItem(LS_REVIEWED) || ''; } catch (e) { /* ignore */ }
+  return nowMinOf(now) >= toMin(S.settings.review.at) && done !== ymd(now);
+}
+function planFor(day) {
+  const date = ymd(day), today = new Date(), nowMin = nowMinOf(today), ahead = new Map(), appts = eventTaskIds(), items = [];
+  plansOn(date).filter(b => b.status === 'planned').forEach(b => ahead.set(b.taskId, (ahead.get(b.taskId) || 0) + blockMin(b)));
+  plansOn(ymd(today)).filter(b => b.status === 'planned' && toMin(b.end) > nowMin).forEach(b => ahead.set(b.taskId, (ahead.get(b.taskId) || 0) + toMin(b.end) - Math.max(toMin(b.start), nowMin)));
+  openTasks().filter(t => !appts.has(t.id)).forEach(t => {
+    const need = remainingMin(t) - (ahead.get(t.id) || 0), d = parseDue(t.due);
+    if (need < MIN_BLOCK) return;
+    items.push({ ref: t.id, kind: 'task', title: t.title, need, cap: d && ymd(d) === date ? d.getHours() * 60 + d.getMinutes() : null, risk: riskScore(t, day), reason: reasonFor(t, day) });
+  });
+  alive(S.routines).forEach(r => { if (r.days.includes(isoDay(day)) && !r.done[date]) { const need = r.minutes - (ahead.get(r.id) || 0); if (need > 0) items.push({ ref: r.id, kind: 'routine', title: r.title, need, cap: null, window: r.window, reason: '每日打卡' }); } });
+  return fillSlots(freeSlots(day, S.settings.dayStart * 60, keptBlocks(date)), items, day);
+}
+// one editor for any plan: every row can be renamed, retimed, dropped; rows can be added
+function planEditor(box, blocks) {
+  box.innerHTML = '';
+  const add = b => {
+    const li = mk(box, 'li', 'erow');
+    li.innerHTML = `<input class="et" maxlength="40" value="${esc(b.title || '')}" placeholder="做什么" aria-label="名字"><input class="es" type="time" value="${b.start || ''}" aria-label="开始"><input class="ee" type="time" value="${b.end || ''}" aria-label="结束"><button type="button" class="x" aria-label="去掉这项">×</button>`;
+    li.dataset.ref = b.taskId || ''; li.dataset.kind = b.kind || 'free'; li.dataset.reason = b.reason || '';
+    if (!b.start) li.dataset.edited = '1';
+    $$('input', li).forEach(inp => inp.addEventListener('input', () => { li.dataset.edited = '1'; }));
+    $('.x', li).addEventListener('click', () => li.remove());
+  };
+  blocks.forEach(add);
+  return {
+    add: () => { const last = $$('.erow', box).pop(), st = Math.min(1380, last ? (toMin($('.ee', last).value) || 1140) + BREAK : 1140); add({ title: '', start: '', end: '' }); const li = $$('.erow', box).pop(); $('.es', li).value = fmtMin(st); $('.ee', li).value = fmtMin(st + 30); $('.et', li).focus(); },
+    read: () => $$('.erow', box).map(li => ({ title: $('.et', li).value.trim(), start: $('.es', li).value, end: $('.ee', li).value, taskId: li.dataset.ref, kind: li.dataset.kind, reason: li.dataset.reason, edited: li.dataset.edited === '1' }))
+  };
+}
+// rows you typed are checked against classes and appointments; other blocks make room for them
+function commitRows(date, rows, source, replaceIds) {
+  const day = parseYMD(date), walls = classesOn(day).map(c => [toMin(c.start), toMin(c.end), c.name]).concat(plansOn(date).filter(b => b.kind === 'event' && b.status === 'planned').map(b => [toMin(b.start), toMin(b.end), b.title]));
+  const items = new Map(planItems(new Date(), true).map(it => [it.ref, it]));
+  const out = [];
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i], a = toMin(r.start), e = toMin(r.end);
+    if (!r.title) { toast(`第 ${i + 1} 项还没写名字`); return false; }
+    if (a == null || e == null || e <= a) { toast(`「${r.title}」的结束时间要晚于开始时间`); return false; }
+    const hit = walls.find(([x, y]) => a < y && e > x);
+    if (hit) { toast(`「${r.title}」和 ${fmtMin(hit[0])}–${fmtMin(hit[1])} ${hit[2]} 冲突`); return false; }
+    const it = (r.taskId && items.get(r.taskId)) || matchItem(items, { title: r.title });
+    out.push({ start: fmtMin(a), end: fmtMin(e), title: r.title, taskId: it ? it.ref : '', kind: it ? it.kind : 'free', reason: r.reason });
+  }
+  const t = Date.now();
+  (replaceIds || []).forEach(id => { const b = S.plans.find(x => x.id === id); if (b && b.status === 'planned') { b.deletedAt = t; b.updatedAt = t; } });
+  const ids = [];
+  out.forEach((b, i) => { const nb = normPlan(Object.assign({ id: newId(), date, source, status: 'planned', pinned: !!rows[i].edited, updatedAt: t }, b)); ids.push(nb.id); S.plans.push(nb); });
+  return ids;
+}
+let reviewEditor = null;
+async function openReview() {
+  const now = new Date(), today = ymd(now), mine = plansOn(today), tomorrow = addDays(startOfDay(now), 1);
+  const done = mine.filter(b => b.status === 'done').length, all = mine.filter(b => b.kind !== 'event').length;
+  const ko = alive(S.tasks).filter(t => t.status === 'done' && t.doneAt && ymd(new Date(t.doneAt)) === today && !eventTaskIds().has(t.id));
+  const rToday = alive(S.routines).filter(r => r.days.includes(isoDay(now))), rDone = rToday.filter(r => r.done[today]);
+  const slipped = mine.filter(b => b.status === 'missed').map(b => b.title).concat(openTasks().filter(t => { const d = parseDue(t.due); return d && d <= now && !eventTaskIds().has(t.id); }).map(t => t.title + '（已过期）'));
+  const focusMin = focusMinutesToday();
+  $('#rvStats').innerHTML = [
+    ['计划块', all ? `${done} / ${all}` : '—'], ['KO 作业', `${ko.length} 项`], ['专注', `${focusMin} 分钟`], ['每日打卡', rToday.length ? `${rDone.length} / ${rToday.length}` : '—']
+  ].map(([k, v]) => `<li><b class="num">${v}</b><small>${k}</small></li>`).join('');
+  $('#rvSlip').hidden = !slipped.length;
+  $('#rvSlip').textContent = slipped.length ? '拖了的：' + Array.from(new Set(slipped)).slice(0, 6).join('、') : '';
+  $('#rvAi').hidden = !aiReady();
+  $('#rvAi').textContent = '小助手正在总结…';
+  reviewEditor = planEditor($('#rvPlan'), planFor(tomorrow));
+  $('#rvDay').textContent = `明天（${tomorrow.getMonth() + 1}月${tomorrow.getDate()}日 周${WD[isoDay(tomorrow) - 1]}）的方案，名字和时间都能改`;
+  openDlg($('#dlgReview'));
+  try { localStorage.setItem(LS_REVIEWED, today); } catch (e) { /* ignore */ }
+  renderPlanHints(now);
+  if (aiReady()) {
+    const facts = { 计划块完成: `${done}/${all}`, KO: ko.map(t => t.title), 专注分钟: focusMin, 打卡: `${rDone.length}/${rToday.length}`, 拖了的: slipped, 明天的课: classesOn(tomorrow).map(c => `${c.start} ${c.name}`), 赛况: raceOn() ? raceState(now).L.toFixed(1) + ' km' : '' };
+    try {
+      const text = await callAI([{ role: 'user', content: `你是用户的学习助手，帮 ${S.settings.nick || '同学'} 复盘今天。用三句话：一句肯定做得好的具体一点，一句点出拖了什么、为什么可能会拖，一句说明天最该先做的事。具体，不说空话，不用列表。今天的数据：${JSON.stringify(facts)}` }], { maxTokens: 220, temperature: 0.6 });
+      $('#rvAi').textContent = text.trim();
+    } catch (e) { $('#rvAi').textContent = '这次没连上小助手，看上面的数据也行。'; }
+  }
 }
 
 /* ---------- 小助手: free conversation; it acts through tools and asks before scheduling ---------- */
@@ -1461,6 +1982,7 @@ async function voiceInput() {
 const LS_REMINDED = 'swb:reminded';
 let remindTask = null;
 function checkReminders() {
+  checkAfterClass();
   if ($('#dlgRemind').open) return;
   let seen = {};
   try { seen = JSON.parse(localStorage.getItem(LS_REMINDED) || '{}') || {}; } catch (e) { seen = {}; }
@@ -1539,6 +2061,9 @@ function renderTitle() {
   $('#heroDate').textContent = `${now.getMonth() + 1}月${now.getDate()}日 周${WD[isoDay(now) - 1]}`;
   $('#heroWeek').textContent = w == null ? '设置教学周' : w === 0 ? '还没开学' : `第 ${w} 周 ${w % 2 ? '单周' : '双周'}`;
   renderRace();
+  const ne = alive(S.exams).filter(e => examDays(e) >= 0 && examDays(e) <= 30).sort((a, b) => a.date.localeCompare(b.date))[0];
+  $('#heroExam').hidden = !ne;
+  if (ne) $('#heroExam').textContent = examDays(ne) ? `${ne.course}考试 还有 ${examDays(ne)} 天` : `今天考${ne.course}`;
   // semester lap: one full lap = the whole term
   const total = s.totalWeeks, prog = semesterProgress(now);
   const path = $('#ovalDone'), len = path.getTotalLength ? path.getTotalLength() : 0;
@@ -1552,9 +2077,15 @@ function renderTitle() {
 }
 
 let rulerDrawn = false;
+let dayOffset = 0; // 0 today, 1 tomorrow, 2 the day after
 function renderToday() {
-  const now = new Date(), nowMin = now.getHours() * 60 + now.getMinutes();
-  const classes = classesOn(now), todayKey = ymd(now);
+  const now = new Date(), day = addDays(startOfDay(now), dayOffset), isToday = dayOffset === 0;
+  const nowMin = isToday ? now.getHours() * 60 + now.getMinutes() : -1;
+  const classes = classesOn(day), todayKey = ymd(day);
+  $$('#daySel button').forEach(b => b.setAttribute('aria-pressed', String(+b.dataset.o === dayOffset)));
+  $('#todayH').textContent = ['今天', '明天', '后天'][dayOffset];
+  ['.plan-bar', '#todayRoutines', '#todayReview', '#replanHint', '#reviewHint'].forEach(sel => { if (!isToday && $(sel)) $(sel).hidden = true; });
+  if (isToday) $('.plan-bar').hidden = false;
   const eventTasks = new Set(alive(S.plans).filter(b => b.kind === 'event').map(b => b.taskId)); // appointments already show as blocks
   const dues = openTasks().filter(t => t.due.slice(0, 10) === todayKey && !eventTasks.has(t.id))
     .map(t => ({ t, m: toMin(t.due.slice(11, 16)) })).filter(x => x.m != null).sort((a, b) => a.m - b.m);
@@ -1601,7 +2132,7 @@ function renderToday() {
   const doneToday = blocksToday.filter(x => x.status === 'done').map(x => ({ c: x, a: toMin(x.start), b: toMin(x.end), lane: 0, lanes: 1 }));
   doneToday.concat(layoutLanes(classes.concat(blocksToday.filter(x => x.status !== 'done')))).forEach(({ c, a, b, lane, lanes }) => {
     if (c.taskId !== undefined) { // a planned study block
-      const el = mk(box, 'button', 'ev pl' + (c.kind === 'event' ? ' event' : '') + (c.status === 'done' ? ' done' : c.status === 'missed' ? ' missed' : '') + (c.pinned && c.kind !== 'event' ? ' pinned' : ''));
+      const el = mk(box, 'button', 'ev pl' + (c.kind === 'event' ? ' event' : c.kind === 'review' ? ' review' : '') + (c.status === 'done' ? ' done' : c.status === 'missed' ? ' missed' : '') + (c.pinned && c.kind !== 'event' ? ' pinned' : ''));
       el.type = 'button';
       el.style.top = ((a - start) * PX_DAY) + 'px';
       el.style.height = Math.max(30, (b - a) * PX_DAY - 2) + 'px';
@@ -1653,6 +2184,12 @@ function renderToday() {
 
   const next = classes.find(c => toMin(c.end) > nowMin);
   let sum;
+  if (!isToday) {
+    const ev = blocksToday.filter(b => b.kind === 'event').length, pl = blocksToday.filter(b => b.kind !== 'event' && b.status === 'planned').length;
+    $('#todaySum').textContent = [`${classes.length ? classes.length + ' 节课' : '没课'}`, ev ? `${ev} 个日程` : '', pl ? `${pl} 块安排` : '', dues.length ? `${dues.length} 项截止` : ''].filter(Boolean).join('，');
+    $('#soonList').innerHTML = ''; renderSoon(now);
+    return;
+  }
   if (!alive(S.courses).length) sum = '还没有课表，先到“课表”里添加或导入';
   else if (!classes.length) sum = '今天没课';
   else if (!next) sum = `今天 ${classes.length} 节课都上完了`;
@@ -1662,8 +2199,11 @@ function renderToday() {
   $('#todaySum').textContent = sum;
   renderPlanHints(now);
   renderRoutinesToday(now);
-
-  const soon = openTasks().filter(t => t.due).sort(byDue).slice(0, 4);
+  renderReviewToday(now);
+  renderSoon(now);
+}
+function renderSoon(now) {
+  const soon = openTasks().filter(t => t.due && !eventTaskIds().has(t.id)).sort(byDue).slice(0, 4);
   const list = $('#soonList');
   list.innerHTML = '';
   if (!soon.length) list.innerHTML = '<li class="empty">擂台上暂时没有对手。</li>';
@@ -1733,7 +2273,20 @@ function renderWeek() {
   for (let m = start; m < end; m += 60) { const s = mk(axis, 'span', 'num'); s.style.top = ((m - start) * PX_WEEK) + 'px'; s.textContent = pad(m / 60); }
   for (const d of days) {
     const col = mk(grid, 'div', 'wk-col' + (isToday(d) ? ' today' : ''));
-    layoutLanes(items.filter(c => c.day === d)).forEach(({ c, a, b, lane, lanes }) => {
+    const dayKey = mon ? ymd(addDays(mon, d - 1)) : '';
+    const extra = dayKey ? plansOn(dayKey).filter(x => x.kind === 'event' || x.status === 'planned') : [];
+    layoutLanes(items.filter(c => c.day === d).concat(extra)).forEach(({ c, a, b, lane, lanes }) => {
+      if (c.taskId !== undefined) { // an appointment or a planned block
+        const el = mk(col, 'button', 'cb wk-pl' + (c.kind === 'event' ? ' ev' : c.kind === 'review' ? ' review' : ''));
+        el.type = 'button';
+        el.style.top = ((a - start) * PX_WEEK) + 'px';
+        el.style.height = Math.max(18, (b - a) * PX_WEEK - 1) + 'px';
+        el.style.left = `calc(${(lane * 100 / lanes).toFixed(3)}% + 1px)`;
+        el.style.width = `calc(${(100 / lanes).toFixed(3)}% - 2px)`;
+        el.innerHTML = `<b>${esc(c.title)}</b><span class="num">${esc(c.start)}</span>`;
+        el.addEventListener('click', () => openBlock(c.id));
+        return;
+      }
       const el = mk(col, 'button', 'cb');
       el.type = 'button';
       el.style.top = ((a - start) * PX_WEEK) + 'px';
@@ -1775,7 +2328,7 @@ function taskRow(t, now) {
   const li = document.createElement('li');
   li.className = 'task' + (done ? ' done' : (due ? ' ' + urgency(due, now) : ''));
   const cdText = due && !done ? countdown(due, now) : '';
-  const tags = (t.course ? `<span>${esc(t.course)}</span>` : '') + `<span class="tag">${esc(t.type)}</span>` +
+  const tags = (t.course ? `<span>${esc(t.course)}</span>` : '') + `<span class="tag">${eventTaskIds().has(t.id) && t.type !== '考试' ? '日程' : esc(t.type)}</span>` +
     (t.priority === 'high' ? '<span class="tag hi">高优先</span>' : t.priority === 'low' ? '<span class="tag">低优先</span>' : '') +
     (t.status === 'doing' ? '<span class="tag doing">进行中</span>' : '');
   li.innerHTML =
@@ -1797,7 +2350,8 @@ function taskRow(t, now) {
 }
 function renderTasks() {
   const now = new Date();
-  const open = openTasks().sort(taskSort === 'risk' ? byRisk(now) : byDue);
+  const appts = eventTaskIds();
+  const open = openTasks().sort(taskSort === 'risk' ? (a, b) => (appts.has(a.id) - appts.has(b.id)) || byRisk(now)(a, b) : byDue);
   const done = alive(S.tasks).filter(t => t.status === 'done').sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0));
   $$('#taskFilter button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.f === taskFilter)));
   $$('#taskSort button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.s === taskSort)));
@@ -1809,6 +2363,10 @@ function renderTasks() {
   $('#btnAddTask').textContent = taskFilter === 'daily' ? '添加每日' : '添加';
   const list = $('#taskList');
   list.innerHTML = '';
+  $('#examBar').hidden = taskFilter !== 'exam';
+  $('#btnAddTask').hidden = taskFilter === 'exam';
+  $('#taskFilter [data-f="exam"] .n').textContent = alive(S.exams).filter(e => examDays(e) >= 0).length || '';
+  if (taskFilter === 'exam') { renderExams(list); return; }
   if (taskFilter === 'daily') {
     list.innerHTML = routines.length ? '' : '<li class="empty">背单词、跑步、读文献这类每天或每周固定做的事放这里。没有截止时间，按天打卡，会算进排计划和赛况。</li>';
     routines.forEach(r => {
@@ -1933,6 +2491,10 @@ function renderMe() {
   $('#mTheme').value = getTheme();
   $('#secNotify').hidden = !isNative;
   if (act !== $('#mLead')) $('#mLead').value = String(s.notifyLead);
+  if (act !== $('#mExamLead')) $('#mExamLead').value = String(s.exam.lead);
+  [['#mFLen', 'len'], ['#mFBrk', 'brk'], ['#mFLong', 'long'], ['#mFEvery', 'every']].forEach(([id, k]) => { if (act !== $(id)) $(id).value = String(s.focus[k]); });
+  $('#mAfter').checked = s.afterClass; $('#mReview').checked = s.review.on;
+  if (act !== $('#mReviewAt')) $('#mReviewAt').value = s.review.at;
   $('#mVer').textContent = VERSION;
   $('#mEnv').textContent = isNative ? '安卓 App' : '网页版';
 }
@@ -1961,6 +2523,7 @@ function openTask(id) {
   setSeg('#tType', t ? t.type : '作业');
   setSeg('#tPrio', t ? t.priority : 'mid');
   setSeg('#tStatus', t ? t.status : 'todo');
+  courseChips(!t);
   $('#tEst').value = String(t ? t.estimate : 60);
   $('#tRemind').value = String(t ? t.remind : S.settings.notifyLead);
   const due = t && parseDue(t.due);
@@ -2258,7 +2821,7 @@ function backupJSON() {
 }
 function mergeState(incoming) {
   const inc = normalizeState(incoming), res = { add: 0, upd: 0, settings: false };
-  ['courses', 'tasks', 'others', 'plans', 'routines', 'busy', 'memory'].forEach(k => {
+  ['courses', 'tasks', 'others', 'plans', 'routines', 'busy', 'memory', 'focus', 'exams'].forEach(k => {
     const map = new Map(S[k].map(x => [x.id, x]));
     inc[k].forEach(r => {
       const cur = map.get(r.id);
@@ -2321,7 +2884,7 @@ async function ensureChannel(LN) {
   if (channelReady || typeof LN.createChannel !== 'function') return;
   try {
     await LN.createChannel({ id: 'deadline3', name: '截止提醒（悬浮）', description: '作业截止前弹出的悬浮提醒', importance: 5, visibility: 1, vibration: true, lights: true, lightColor: '#F2552C' });
-    if (typeof LN.registerActionTypes === 'function') await LN.registerActionTypes({ types: [{ id: 'DEADLINE', actions: [{ id: 'start', title: '现在开始' }, { id: 'snooze', title: '10 分钟后再提醒' }] }] });
+    if (typeof LN.registerActionTypes === 'function') await LN.registerActionTypes({ types: [{ id: 'DEADLINE', actions: [{ id: 'start', title: '现在开始' }, { id: 'snooze', title: '10 分钟后再提醒' }] }, { id: 'AFTERCLASS', actions: [{ id: 'log', title: '记作业' }, { id: 'none', title: '没有' }] }] });
     if (typeof LN.addListener === 'function') LN.addListener('localNotificationActionPerformed', ev => onNotifAction(ev));
     channelReady = true;
   } catch (e) { console.warn('channel', e); }
@@ -2339,7 +2902,7 @@ async function syncNotifications(ask) {
     }
     await ensureChannel(LN);
     const pend = await LN.getPending();
-    const ids = arr(pend && pend.notifications).filter(n => n.id !== TEST_ID).map(n => ({ id: n.id }));
+    const ids = arr(pend && pend.notifications).filter(n => n.id !== TEST_ID && n.id !== FOCUS_ID).map(n => ({ id: n.id }));
     if (ids.length) await LN.cancel({ notifications: ids });
     const now = new Date(), list = [];
     openTasks().forEach(t => {
@@ -2349,13 +2912,26 @@ async function syncNotifications(ask) {
       if (at <= now.getTime()) return;
       list.push({ id: nid(t.id), channelId: 'deadline3', actionTypeId: 'DEADLINE', extra: { taskId: t.id }, title: '⏰ 截止提醒：' + t.title, body: `${dueLabel(d, now)} 截止${t.course ? '，' + t.course : ''}`, schedule: { at: new Date(at), allowWhileIdle: true } });
     });
+    // 下课问作业 (today and tomorrow) and the nightly review
+    if (S.settings.afterClass) [0, 1].forEach(o => {
+      const d = addDays(startOfDay(now), o);
+      classesOn(d).forEach(c => { const at = d.getTime() + (toMin(c.end) + 3) * 60000; if (at > Date.now()) list.push({ id: nid('cls' + ymd(d) + c.name + c.end), channelId: 'deadline3', actionTypeId: 'AFTERCLASS', extra: { kind: 'class', course: c.name }, title: `${c.name}下课了`, body: '有作业吗？点“记作业”直接记下', schedule: { at: new Date(at), allowWhileIdle: true } }); });
+    });
+    if (S.settings.review.on) {
+      let at = startOfDay(now).getTime() + toMin(S.settings.review.at) * 60000;
+      if (at <= Date.now()) at += 86400000;
+      list.push({ id: REVIEW_ID, channelId: 'deadline3', extra: { kind: 'review' }, title: '复盘一下今天？', body: '看看今天做了什么，顺手把明天排好', schedule: { at: new Date(at), allowWhileIdle: true } });
+    }
     list.sort((a, b) => a.schedule.at - b.schedule.at);
     if (list.length) await LN.schedule({ notifications: list.slice(0, 60) });
     $('#mNotifyInfo').textContent = list.length ? `已安排 ${Math.min(list.length, 60)} 条提醒。` : '目前没有需要提醒的事项。';
   } catch (e) { console.warn('notifications', e); $('#mNotifyInfo').textContent = '安排提醒时出错：' + (e && e.message ? e.message : e); }
 }
 function onNotifAction(ev) {
-  const id = ev && ev.notification && ev.notification.extra && ev.notification.extra.taskId, t = id && S.tasks.find(x => x.id === id && !x.deletedAt);
+  const ex = (ev && ev.notification && ev.notification.extra) || {};
+  if (ex.kind === 'class') { if (ev.actionId !== 'none') { location.hash = '#today'; setTimeout(() => logHomework(ex.course), 300); } return; }
+  if (ex.kind === 'review') { location.hash = '#today'; setTimeout(openReview, 300); return; }
+  const id = ex.taskId, t = id && S.tasks.find(x => x.id === id && !x.deletedAt);
   if (!t) return;
   const LN = plugin('LocalNotifications');
   if (ev.actionId === 'snooze' && LN) {
@@ -2529,6 +3105,29 @@ function wire() {
   $('#mFinish').addEventListener('change', e => { if (parseYMD(e.target.value)) { S.settings.race.finish = e.target.value; touch(S.settings); commit('settings'); } });
   $('#mPath').addEventListener('change', e => setS('path', e.target.value === '考研' ? '考研' : '保研'));
   $('#chatMic').addEventListener('click', voiceInput);
+  wireFocus();
+  wireExams();
+  $$('#daySel button').forEach(b => b.addEventListener('click', () => { dayOffset = +b.dataset.o; renderToday(); }));
+  $('#reviewBtn').addEventListener('click', openReview);
+  $('#rvAdd').addEventListener('click', () => reviewEditor && reviewEditor.add());
+  $('#rvRegen').addEventListener('click', () => { reviewEditor = planEditor($('#rvPlan'), planFor(addDays(startOfDay(new Date()), 1))); });
+  $('#rvAccept').addEventListener('click', () => {
+    const tomorrow = ymd(addDays(new Date(), 1)), rows = reviewEditor.read();
+    const ids = commitRows(tomorrow, rows, 'local', plansOn(tomorrow).filter(b => b.status === 'planned' && b.kind !== 'event' && !b.pinned).map(b => b.id));
+    if (!ids) return;
+    commit('plans'); $('#dlgReview').close();
+    toast(`明天排好了：${ids.length} 项。今天页切到“明天”能看到`);
+  });
+  $('#dpAdd').addEventListener('click', () => planDraft && planDraft.editor.add());
+  $('#afterLog').addEventListener('click', () => logHomework(afterCourse));
+  $('#afterNo').addEventListener('click', () => { $('#afterCls').hidden = true; });
+  $('#dbFocus').addEventListener('click', () => { const b = S.plans.find(x => x.id === blockId); $('#dlgBlock').close(); if (b) setTimeout(() => openFocusSetup({ ref: b.taskId, kind: b.kind, title: b.title, blockId: b.id, len: Math.max(5, toMin(b.end) - Math.max(toMin(b.start), b.date === ymd(new Date()) ? nowMinOf(new Date()) : 0)) }), 200); });
+  $('#tFocus').addEventListener('click', () => { const t = editTaskId && S.tasks.find(x => x.id === editTaskId); $('#dlgTask').close(); setTimeout(() => openFocusSetup(t ? { ref: t.id, kind: 'task', title: t.title } : {}), 200); });
+  const setF = (k, v) => { S.settings.focus[k] = v; touch(S.settings); commit('settings'); };
+  [['#mFLen', 'len', 5, 180, 25], ['#mFBrk', 'brk', 1, 60, 5], ['#mFLong', 'long', 1, 60, 15], ['#mFEvery', 'every', 2, 10, 4]].forEach(([id, k, lo, hi, df]) => $(id).addEventListener('change', e => setF(k, clampInt(e.target.value, lo, hi, df))));
+  $('#mAfter').addEventListener('change', e => { S.settings.afterClass = e.target.checked; touch(S.settings); commit('settings'); scheduleNotifSync(false); });
+  $('#mReview').addEventListener('change', e => { S.settings.review.on = e.target.checked; touch(S.settings); commit('settings'); scheduleNotifSync(false); });
+  $('#mReviewAt').addEventListener('change', e => { if (HM.test(e.target.value.slice(0, 5))) { S.settings.review.at = e.target.value.slice(0, 5); touch(S.settings); commit('settings'); scheduleNotifSync(false); } });
   $('#dbSave').addEventListener('click', () => {
     const b = S.plans.find(x => x.id === blockId), a = toMin($('#dbStart').value), e = toMin($('#dbEnd').value), title = $('#dbTitle').value.trim();
     if (!b) return;
