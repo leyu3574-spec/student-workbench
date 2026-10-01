@@ -43,7 +43,7 @@ jobs:
           sed -i 's#</manifest>#    <queries><intent><action android:name="android.speech.RecognitionService" /></intent></queries>\n    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />\n    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />\n    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n</manifest>#' android/app/src/main/AndroidManifest.xml
           # our small native bridge for the reminder settings pages
           cp resources/android/java/*.java android/app/src/main/java/com/student/workbench/
-          sed -i "s/versionCode 1$/versionCode ${{ github.run_number }}/; s/versionName \"1.0\"/versionName \"0.9.${{ github.run_number }}\"/" android/app/build.gradle
+          sed -i "s/versionCode 1$/versionCode ${{ github.run_number }}/; s/versionName \"1.0\"/versionName \"1.2.${{ github.run_number }}\"/" android/app/build.gradle
           npx cap sync android
       - name: 固定签名（每一版都用同一把钥匙，才能不卸载直接覆盖安装）
         env:
@@ -83,9 +83,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp android/app/build/outputs/apk/debug/app-debug.apk workbench-0.9.${{ github.run_number }}.apk
-          gh release create "v0.9.${{ github.run_number }}" "workbench-0.9.${{ github.run_number }}.apk" \
-            --repo "${{ github.repository }}" --title "学生工作台 0.9.${{ github.run_number }}" --notes "自动构建"
+          cp android/app/build/outputs/apk/debug/app-debug.apk workbench-1.2.${{ github.run_number }}.apk
+          gh release create "v1.2.${{ github.run_number }}" "workbench-1.2.${{ github.run_number }}.apk" \
+            --repo "${{ github.repository }}" --title "学生工作台 1.2.${{ github.run_number }}" --notes "自动构建"
 
   web:
     name: 网页版（平板用）
