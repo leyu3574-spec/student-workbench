@@ -2,22 +2,11 @@
 
 个人自用，本地优先。目前只含基础功能：教学周、课表（按周显示、PDF 导入、CSV 导入、手动录入）、作业待办、今天的日程整合。数据只存在设备上。
 
-“我的 → 个性化”里目标填“南京大学”，首页会出现一场从南工跑到南大的比赛：陪跑的 TA 按学期进度跑，作业按时 KO 就能跟住 TA，期末一起撞线。TA 的名字、身份（目标、榜样、陪伴）和想对你说的话都能改。
+“我的 → 个性化”里目标填“南京大学”，首页会出现一场从**跑到南大的比赛：陪跑的 TA 按学期进度跑，作业按时 KO 就能跟住 TA，期末一起撞线。TA 的名字、身份（目标、榜样、陪伴）和想对你说的话都能改。
 
 - 手机（安卓）：GitHub 自动打包 APK，装上就是独立 App，截止提醒走系统通知。
 - 平板（鸿蒙 5）：装不了 APK，用同一套代码的网页版，浏览器打开即用。
 
-## 第一次设置（一次性，电脑上操作最方便）
-
-1. 在 GitHub 新建仓库，比如 `student-workbench`，设为 **Public**（代码里没有你的任何数据；公开仓库的 Pages 和 Actions 免费）。
-2. 把 `student-workbench` 文件夹里的全部内容上传到仓库根目录，包括隐藏的 `.github/workflows/build.yml`。
-   网页上传后在仓库里确认能看到 `.github/workflows/build.yml`；没有的话用 Add file → Create new file，路径填 `.github/workflows/build.yml`，把文件内容粘贴进去。
-3. 仓库 Settings → Secrets and variables → Actions → New repository secret：
-   - Name：`ANDROID_DEBUG_KEYSTORE`
-   - Secret：把压缩包里 `签名密钥-粘贴到GitHub.txt` 的全部内容粘贴进去
-   这把钥匙保证每次新版本都能覆盖安装、数据不丢。不要把这个 txt 上传到仓库。
-4. 仓库 Settings → Pages → Build and deployment → Source 选 **GitHub Actions**。
-5. 打开仓库的 Actions 页，选“构建”→ Run workflow（以后每次推送代码都会自动跑）。
 
 ## 安装
 
@@ -108,7 +97,3 @@
 用 WakeUp 课程表的模板，7 列：课程名称、星期、开始节数、结束节数、老师、地点、周数。
 周数写 `1-16`、`1-8,10-16`；单双周写 `1-15单`、`2-16双`。节数按“我的 → 作息表”换算成时间，第一次用先核对作息表。
 课表页 → 导入 → 下载 CSV 模板，可以拿到示例文件。
-
-## 构建失败时
-
-打开 Actions 里失败的那次运行，把红色步骤的日志复制出来发给 Claude。
