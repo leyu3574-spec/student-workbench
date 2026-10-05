@@ -5,6 +5,14 @@
 🚀 **在线试用（网页版）**：https://leyu3574-spec.github.io/student-workbench/
 📦 **Android 版**：去 [Releases](https://github.com/leyu3574-spec/student-workbench/releases) 下载最新 APK（`workbench-1.2.x.apk`，覆盖安装即可）
 
+## 📸 界面预览
+
+| 今天 · 时间轴 | 课表 · 周视图 |
+|---|---|
+| ![今天页](screenshots/today.png) | ![课表页](screenshots/timetable.png) |
+
+*（演示数据，实际使用时换成你自己的课表和待办）*
+
 ## ✨ 功能
 
 - 📅 **课表**：按周显示，支持教务系统 PDF 导入、CSV 导入、手动录入
